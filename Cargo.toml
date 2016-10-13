@@ -1,0 +1,10 @@
+[package]
+name = "cheshire"
+version = "0.1.0"
+authors = ["Michael Goulet <michael@errs.io>"]
+
+[dependencies]
+
+[[bin]]
+name="cheshire"
+path="src/main.rs"
