@@ -1,6 +1,6 @@
 fn main() -> (Bool, Bool) {
-    let a = true.
-    let b = false.
+    let a: Bool = true.
+    let b: _ = false.
 
     if a & b {
         return (a, b).

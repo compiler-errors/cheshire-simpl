@@ -253,7 +253,7 @@ impl Analyzer {
                     BinOpKind::Xor |
                     BinOpKind::And |
                     BinOpKind::Or => {
-                        if self.is_boolean_ty(lhs_ty) {
+                        if !self.is_boolean_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
                                 format!("Expected sub-expression of type `Bool`"));
                         }
@@ -441,7 +441,7 @@ impl Analyzer {
     fn is_boolean_ty(&self, ty: Ty) -> bool {
         match self.ty_variables[&ty] {
             AnalyzeType::Same(same_ty) =>
-                self.is_numeric_ty(same_ty),
+                self.is_boolean_ty(same_ty),
             AnalyzeType::Boolean => true,
             _ => false
         }
