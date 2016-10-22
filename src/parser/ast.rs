@@ -2,13 +2,13 @@ use util::FileReader;
 use analyzer::{Ty, TY_NOTHING};
 
 #[derive(Debug)]
-pub struct ParseFile {
-    pub file: FileReader,
+pub struct ParseFile<'a> {
+    pub file: FileReader<'a>,
     pub functions: Vec<AstFunction>
 }
 
-impl ParseFile {
-    pub fn new(file: FileReader, functions: Vec<AstFunction>) -> ParseFile {
+impl <'a> ParseFile<'a> {
+    pub fn new(file: FileReader<'a>, functions: Vec<AstFunction>) -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions

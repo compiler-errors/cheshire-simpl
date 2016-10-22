@@ -28,14 +28,14 @@ impl ParseError {
     }
 }
 
-pub struct Parser {
-    lexer: Lexer,
+pub struct Parser<'a> {
+    lexer: Lexer<'a>,
     pos: usize,
     next_token: Token,
 }
 
-impl Parser {
-    pub fn new(lexer: Lexer) -> Parser {
+impl <'a> Parser<'a> {
+    pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
         Parser {
             lexer: lexer,
             pos: 0,
@@ -96,7 +96,7 @@ impl Parser {
         }
     }
 
-    pub fn parse_file(mut self) -> ParseFile {
+    pub fn parse_file(mut self) -> ParseFile<'a> {
         self.expect_consume(Token::BOF).unwrap();
 
         let mut functions = Vec::new();

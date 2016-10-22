@@ -11,14 +11,14 @@ const EOF: char = '\x00';
 
 /// A `Lexer` is a stream of relevant tokens that can be used by
 /// the Cheshire parser.
-pub struct Lexer {
-    pub file: FileReader,
+pub struct Lexer<'a> {
+    pub file: FileReader<'a>,
     next_token_pos: usize,
     next_token: Token,
 }
 
-impl Lexer {
-    pub fn new(file: FileReader) -> Lexer {
+impl <'a> Lexer<'a> {
+    pub fn new(file: FileReader<'a>) -> Lexer<'a> {
         let lexer = Lexer {
             file: file,
             next_token_pos: 0,

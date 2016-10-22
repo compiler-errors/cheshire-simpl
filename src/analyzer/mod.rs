@@ -6,21 +6,21 @@ use parser::*;
 use std::collections::HashMap;
 use std::process::exit;
 
-pub struct Analyzer {
+pub struct Analyzer<'a> {
     functions: HashMap<String, FnSignature>,
     variables: Vec<HashMap<String, Ty>>,
     return_ty: Ty,
 
     // File which is being analyzed
-    file: Option<FileReader>,
+    file: Option<FileReader<'a>>,
 
     // Type System
     ty_variables: HashMap<Ty, AnalyzeType>,
     ty_new_id: u32
 }
 
-impl Analyzer {
-    pub fn new() -> Analyzer {
+impl <'a> Analyzer<'a> {
+    pub fn new() -> Analyzer<'a> {
         let mut ty_variables = HashMap::new();
         ty_variables.insert(TY_NOTHING, AnalyzeType::Nothing);
         ty_variables.insert(TY_BOOLEAN, AnalyzeType::Boolean);
@@ -40,7 +40,7 @@ impl Analyzer {
         }
     }
 
-    pub fn analyze_file(&mut self, mut f: ParseFile) {
+    pub fn analyze_file(&mut self, mut f: ParseFile<'a>) {
         self.file = Some(f.file);
 
         for fun in &f.functions {
@@ -129,7 +129,6 @@ impl Analyzer {
             }
             &mut AstStatementData::Expression { ref mut expression } => {
                 self.typecheck_expr(expression);
-                //TODO: maybe check for expr_stmt
             }
         }
     }
