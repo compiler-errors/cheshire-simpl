@@ -9,7 +9,7 @@ pub struct FileReader<'a> {
     reached_end: bool,
 }
 
-impl <'a> FileReader<'a> {
+impl<'a> FileReader<'a> {
     pub fn new(file_contents: &str) -> FileReader {
         let mut fr = FileReader {
             file: file_contents,

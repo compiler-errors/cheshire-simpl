@@ -17,7 +17,7 @@ pub struct Lexer<'a> {
     next_token: Token,
 }
 
-impl <'a> Lexer<'a> {
+impl<'a> Lexer<'a> {
     pub fn new(file: FileReader<'a>) -> Lexer<'a> {
         let lexer = Lexer {
             file: file,
@@ -397,7 +397,7 @@ impl <'a> Lexer<'a> {
                 }
                 self.bump(2);
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
 
         Ok(())

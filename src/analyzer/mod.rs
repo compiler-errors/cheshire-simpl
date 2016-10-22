@@ -16,10 +16,10 @@ pub struct Analyzer<'a> {
 
     // Type System
     ty_variables: HashMap<Ty, AnalyzeType>,
-    ty_new_id: u32
+    ty_new_id: u32,
 }
 
-impl <'a> Analyzer<'a> {
+impl<'a> Analyzer<'a> {
     pub fn new() -> Analyzer<'a> {
         let mut ty_variables = HashMap::new();
         ty_variables.insert(TY_NOTHING, AnalyzeType::Nothing);
@@ -36,7 +36,7 @@ impl <'a> Analyzer<'a> {
             return_ty: 0,
             file: None,
             ty_variables: ty_variables,
-            ty_new_id: TY_FIRST_NEW_ID
+            ty_new_id: TY_FIRST_NEW_ID,
         }
     }
 
@@ -46,11 +46,13 @@ impl <'a> Analyzer<'a> {
         for fun in &f.functions {
             if self.functions.contains_key(&fun.name) {
                 self.report_analyze_err_at(fun.pos,
-                    format!("Duplicate function name `{}`", fun.name));
+                                           format!("Duplicate function name `{}`", fun.name));
             }
 
-            let arg_tys: Vec<_> = fun.parameter_list.iter()
-                                     .map(|p| self.initialize_ty(&p.ty)).collect();
+            let arg_tys: Vec<_> = fun.parameter_list
+                .iter()
+                .map(|p| self.initialize_ty(&p.ty))
+                .collect();
             let return_ty = self.initialize_ty(&fun.return_type);
             self.functions.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
         }
@@ -91,24 +93,19 @@ impl <'a> Analyzer<'a> {
             &mut AstStatementData::Block { ref mut block } => {
                 self.analyze_block(block);
             }
-            &mut AstStatementData::Let { ref mut var_name,
-                                         ref mut ty,
-                                         ref mut value } => {
+            &mut AstStatementData::Let { ref mut var_name, ref mut ty, ref mut value } => {
                 let let_ty = self.initialize_ty(ty);
                 let expr_ty = self.typecheck_expr(value);
                 self.union_ty(let_ty, expr_ty, pos);
                 self.declare_variable(var_name, let_ty, pos);
             }
-            &mut AstStatementData::If { ref mut condition,
-                                        ref mut block,
-                                        ref mut else_block } => {
+            &mut AstStatementData::If { ref mut condition, ref mut block, ref mut else_block } => {
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos); //TODO: more expressive error?
                 self.analyze_block(block);
                 self.analyze_block(else_block);
             }
-            &mut AstStatementData::While { ref mut condition,
-                                           ref mut block } => {
+            &mut AstStatementData::While { ref mut condition, ref mut block } => {
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos);
                 self.analyze_block(block);
@@ -116,7 +113,7 @@ impl <'a> Analyzer<'a> {
             &mut AstStatementData::Break |
             &mut AstStatementData::Continue |
             &mut AstStatementData::NoOp => {
-                //TODO: nothing yet
+                // TODO: nothing yet
             }
             &mut AstStatementData::Return { ref mut value } => {
                 let ty = self.typecheck_expr(value);
@@ -134,40 +131,18 @@ impl <'a> Analyzer<'a> {
     }
 
     fn typecheck_expr(&mut self, expression: &mut AstExpression) -> Ty {
-        let &mut AstExpression {
-            ref mut expr,
-            ref mut ty,
-            pos
-        } = expression;
+        let &mut AstExpression { ref mut expr, ref mut ty, pos } = expression;
 
         *ty = match expr {
-            &mut AstExpressionData::Nothing => {
-                TY_NOTHING
-            }
-            &mut AstExpressionData::True => {
-                TY_BOOLEAN
-            }
-            &mut AstExpressionData::False => {
-                TY_BOOLEAN
-            }
-            &mut AstExpressionData::String(_) => {
-                TY_STRING
-            }
-            &mut AstExpressionData::Int(_) => {
-                TY_INT
-            }
-            &mut AstExpressionData::UInt(_) => {
-                TY_UINT
-            }
-            &mut AstExpressionData::Float(_) => {
-                TY_FLOAT
-            }
-            &mut AstExpressionData::Char(_) => {
-                TY_CHAR
-            }
-            &mut AstExpressionData::Identifier(ref name) => {
-                self.get_variable_type(name, pos)
-            }
+            &mut AstExpressionData::Nothing => TY_NOTHING,
+            &mut AstExpressionData::True => TY_BOOLEAN,
+            &mut AstExpressionData::False => TY_BOOLEAN,
+            &mut AstExpressionData::String(_) => TY_STRING,
+            &mut AstExpressionData::Int(_) => TY_INT,
+            &mut AstExpressionData::UInt(_) => TY_UINT,
+            &mut AstExpressionData::Float(_) => TY_FLOAT,
+            &mut AstExpressionData::Char(_) => TY_CHAR,
+            &mut AstExpressionData::Identifier(ref name) => self.get_variable_type(name, pos),
             &mut AstExpressionData::Tuple { ref mut values } => {
                 let mut tys = Vec::new();
                 for ref mut value in values {
@@ -183,8 +158,7 @@ impl <'a> Analyzer<'a> {
                 }
                 self.make_array_ty(ty)
             }
-            &mut AstExpressionData::Call { ref mut name,
-                                           ref mut args } => {
+            &mut AstExpressionData::Call { ref mut name, ref mut args } => {
                 let mut arg_tys = Vec::new();
                 for ref mut arg in args {
                     arg_tys.push(self.typecheck_expr(arg));
@@ -194,8 +168,7 @@ impl <'a> Analyzer<'a> {
 
                 self.typecheck_function_call(fn_sig, arg_tys, pos)
             }
-            &mut AstExpressionData::Access { ref mut accessible,
-                                             ref mut idx } => {
+            &mut AstExpressionData::Access { ref mut accessible, ref mut idx } => {
                 let idx_ty = self.typecheck_expr(idx);
                 self.union_ty(idx_ty, TY_UINT, idx.pos);
                 let array_ty = self.typecheck_expr(accessible);
@@ -207,7 +180,8 @@ impl <'a> Analyzer<'a> {
                     ty
                 } else {
                     self.report_analyze_err_at(expr.pos,
-                        format!("Expected sub-expression of type `Int` or `Bool`"));
+                                               format!("Expected sub-expression of type `Int` \
+                                                        or `Bool`"));
                 }
             }
             &mut AstExpressionData::Negate(ref mut expr) => {
@@ -216,55 +190,43 @@ impl <'a> Analyzer<'a> {
                     ty
                 } else {
                     self.report_analyze_err_at(expr.pos,
-                        format!("Expected sub-expression of type `Int`"));
+                                               format!("Expected sub-expression of type `Int`"));
                 }
             }
-            &mut AstExpressionData::BinOp { kind,
-                                            ref mut lhs,
-                                            ref mut rhs } => {
+            &mut AstExpressionData::BinOp { kind, ref mut lhs, ref mut rhs } => {
                 let lhs_ty = self.typecheck_expr(lhs);
                 let rhs_ty = self.typecheck_expr(rhs);
                 self.union_ty(lhs_ty, rhs_ty, pos);
                 match kind {
-                    BinOpKind::Multiply |
-                    BinOpKind::Divide |
-                    BinOpKind::Modulo |
-                    BinOpKind::Add |
-                    BinOpKind::Subtract |
-                    BinOpKind::ShiftLeft |
+                    BinOpKind::Multiply | BinOpKind::Divide | BinOpKind::Modulo |
+                    BinOpKind::Add | BinOpKind::Subtract | BinOpKind::ShiftLeft |
                     BinOpKind::ShiftRight => {
                         if !self.is_numeric_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
-                                format!("Expected sub-expression of type `Int`"));
+                                                       format!("Expected sub-expression of type \
+                                                                `Int`"));
                         }
                         lhs_ty
                     }
-                    BinOpKind::Greater |
-                    BinOpKind::Less |
-                    BinOpKind::GreaterEqual |
+                    BinOpKind::Greater | BinOpKind::Less | BinOpKind::GreaterEqual |
                     BinOpKind::LessEqual => {
                         if !self.is_numeric_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
-                                format!("Expected sub-expression of type `Int`"));
+                                                       format!("Expected sub-expression of type \
+                                                                `Int`"));
                         }
                         TY_BOOLEAN
                     }
-                    BinOpKind::Xor |
-                    BinOpKind::And |
-                    BinOpKind::Or => {
+                    BinOpKind::Xor | BinOpKind::And | BinOpKind::Or => {
                         if !self.is_boolean_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
-                                format!("Expected sub-expression of type `Bool`"));
+                                                       format!("Expected sub-expression of type \
+                                                                `Bool`"));
                         }
                         lhs_ty
                     }
-                    BinOpKind::EqualsEquals |
-                    BinOpKind::NotEqual => {
-                        TY_BOOLEAN
-                    }
-                    BinOpKind::Set => {
-                        lhs_ty
-                    }
+                    BinOpKind::EqualsEquals | BinOpKind::NotEqual => TY_BOOLEAN,
+                    BinOpKind::Set => lhs_ty,
                 }
             }
         };
@@ -272,15 +234,13 @@ impl <'a> Analyzer<'a> {
         *ty
     }
 
-    fn typecheck_function_call(&mut self,
-                               fn_sig: FnSignature,
-                               args: Vec<Ty>,
-                               pos: usize) -> Ty {
+    fn typecheck_function_call(&mut self, fn_sig: FnSignature, args: Vec<Ty>, pos: usize) -> Ty {
         if fn_sig.params.len() != args.len() {
             self.report_analyze_err_at(pos,
-                format!("Expected {} arguments, found {} arguments instead",
-                        fn_sig.params.len(),
-                        args.len()));
+                                       format!("Expected {} arguments, found {} arguments \
+                                                instead",
+                                               fn_sig.params.len(),
+                                               args.len()));
         }
 
         for i in 0..args.len() {
@@ -301,7 +261,9 @@ impl <'a> Analyzer<'a> {
     fn declare_variable(&mut self, name: &String, ty: Ty, pos: usize) {
         if self.variables.last_mut().unwrap().contains_key(name) {
             self.report_analyze_err_at(pos,
-                format!("Variable with name `{}` already declared in scope", name));
+                                       format!("Variable with name `{}` already declared in \
+                                                scope",
+                                               name));
         }
 
         let scope = self.variables.last_mut().unwrap();
@@ -316,7 +278,7 @@ impl <'a> Analyzer<'a> {
         }
 
         self.report_analyze_err_at(pos,
-            format!("Variable with name `{}` not declared in scope", name));
+                                   format!("Variable with name `{}` not declared in scope", name));
     }
 
     fn get_function_signature(&mut self, name: &String) -> FnSignature {
@@ -409,22 +371,20 @@ impl <'a> Analyzer<'a> {
             (AnalyzeType::String, AnalyzeType::String) => {
                 // Do nothing.
             }
-            (AnalyzeType::Tuple(ty1_tys),
-             AnalyzeType::Tuple(ty2_tys)) => {
+            (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
                 if ty1_tys.len() != ty2_tys.len() {
                     self.report_analyze_err_at(pos,
-                        format!("Cannot consolidate tuple types of varying lengths"));
+                                               format!("Cannot consolidate tuple types of \
+                                                        varying lengths"));
                 }
                 for i in 0..ty1_tys.len() {
                     self.union_ty(ty1_tys[i], ty2_tys[i], pos);
                 }
-            },
-            (AnalyzeType::Array(inner_ty1),
-             AnalyzeType::Array(inner_ty2)) => {
+            }
+            (AnalyzeType::Array(inner_ty1), AnalyzeType::Array(inner_ty2)) => {
                 self.union_ty(inner_ty1, inner_ty2, pos);
             }
-            _ => self.report_analyze_err_at(pos,
-                format!("Cannot consolidate types"))
+            _ => self.report_analyze_err_at(pos, format!("Cannot consolidate types")),
         }
     }
 
@@ -432,28 +392,23 @@ impl <'a> Analyzer<'a> {
         match self.ty_variables[&array_ty] {
             AnalyzeType::Same(same_ty) => self.extract_array_element_ty(same_ty, pos),
             AnalyzeType::Array(inner_ty) => inner_ty,
-            _ => self.report_analyze_err_at(pos,
-                format!("Cannot extract array type"))
+            _ => self.report_analyze_err_at(pos, format!("Cannot extract array type")),
         }
     }
 
     fn is_boolean_ty(&self, ty: Ty) -> bool {
         match self.ty_variables[&ty] {
-            AnalyzeType::Same(same_ty) =>
-                self.is_boolean_ty(same_ty),
+            AnalyzeType::Same(same_ty) => self.is_boolean_ty(same_ty),
             AnalyzeType::Boolean => true,
-            _ => false
+            _ => false,
         }
     }
 
     fn is_numeric_ty(&self, ty: Ty) -> bool {
         match self.ty_variables[&ty] {
-            AnalyzeType::Same(same_ty) =>
-                self.is_numeric_ty(same_ty),
-            AnalyzeType::Int |
-            AnalyzeType::UInt |
-            AnalyzeType::Float => true,
-            _ => false
+            AnalyzeType::Same(same_ty) => self.is_numeric_ty(same_ty),
+            AnalyzeType::Int | AnalyzeType::UInt | AnalyzeType::Float => true,
+            _ => false,
         }
     }
 

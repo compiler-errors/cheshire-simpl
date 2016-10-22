@@ -4,14 +4,14 @@ use analyzer::{Ty, TY_NOTHING};
 #[derive(Debug)]
 pub struct ParseFile<'a> {
     pub file: FileReader<'a>,
-    pub functions: Vec<AstFunction>
+    pub functions: Vec<AstFunction>,
 }
 
-impl <'a> ParseFile<'a> {
+impl<'a> ParseFile<'a> {
     pub fn new(file: FileReader<'a>, functions: Vec<AstFunction>) -> ParseFile<'a> {
         ParseFile {
             file: file,
-            functions: functions
+            functions: functions,
         }
     }
 }
@@ -30,7 +30,8 @@ impl AstFunction {
                name: String,
                parameter_list: Vec<AstFnParameter>,
                return_type: AstType,
-               definition: AstBlock) -> AstFunction {
+               definition: AstBlock)
+               -> AstFunction {
         AstFunction {
             pos: pos,
             name: name,
@@ -45,7 +46,7 @@ impl AstFunction {
 pub struct AstFnParameter {
     pub name: String,
     pub ty: AstType,
-        pub pos: usize,
+    pub pos: usize,
 }
 
 impl AstFnParameter {
@@ -53,7 +54,7 @@ impl AstFnParameter {
         AstFnParameter {
             name: name,
             ty: ty,
-            pos: pos
+            pos: pos,
         }
     }
 }
@@ -69,7 +70,7 @@ pub enum AstType {
     Bool,
     String,
     Array { ty: Box<AstType> },
-    Tuple { types: Vec<AstType> }
+    Tuple { types: Vec<AstType> },
 }
 
 impl AstType {
@@ -100,7 +101,7 @@ impl AstBlock {
 #[derive(Debug, PartialEq, Eq)]
 pub struct AstStatement {
     pub stmt: AstStatementData,
-    pub pos: usize
+    pub pos: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -132,57 +133,54 @@ impl AstStatement {
     pub fn block(block: AstBlock, pos: usize) -> AstStatement {
         AstStatement {
             stmt: AstStatementData::Block { block: block },
-            pos: pos
+            pos: pos,
         }
     }
 
     pub fn let_statement(var_name: String,
                          ty: AstType,
                          value: AstExpression,
-                         pos: usize) -> AstStatement {
+                         pos: usize)
+                         -> AstStatement {
         AstStatement {
             stmt: AstStatementData::Let {
                 var_name: var_name,
                 ty: ty,
                 value: value,
             },
-            pos: pos
+            pos: pos,
         }
     }
 
     pub fn if_statement(condition: AstExpression,
                         block: AstBlock,
                         else_block: AstBlock,
-                        pos: usize) -> AstStatement {
+                        pos: usize)
+                        -> AstStatement {
         AstStatement {
             stmt: AstStatementData::If {
                 condition: condition,
                 block: block,
                 else_block: else_block,
             },
-            pos: pos
+            pos: pos,
         }
     }
 
-    pub fn while_loop(condition: AstExpression,
-                      block: AstBlock,
-                      pos: usize) -> AstStatement {
+    pub fn while_loop(condition: AstExpression, block: AstBlock, pos: usize) -> AstStatement {
         AstStatement {
             stmt: AstStatementData::While {
                 condition: condition,
                 block: block,
             },
-            pos: pos
+            pos: pos,
         }
     }
 
-    pub fn return_statement(value: AstExpression,
-                            pos: usize) -> AstStatement {
+    pub fn return_statement(value: AstExpression, pos: usize) -> AstStatement {
         AstStatement {
-            stmt: AstStatementData::Return {
-                value: value
-            },
-            pos: pos
+            stmt: AstStatementData::Return { value: value },
+            pos: pos,
         }
     }
 
@@ -192,21 +190,18 @@ impl AstStatement {
                 value: AstExpression {
                     expr: AstExpressionData::Nothing,
                     ty: TY_NOTHING,
-                    pos: pos
-                }
+                    pos: pos,
+                },
             },
-            pos: pos
+            pos: pos,
         }
     }
 
 
-    pub fn assert_statement(condition: AstExpression,
-                            pos: usize) -> AstStatement {
+    pub fn assert_statement(condition: AstExpression, pos: usize) -> AstStatement {
         AstStatement {
-            stmt: AstStatementData::Assert {
-                condition: condition
-            },
-            pos: pos
+            stmt: AstStatementData::Assert { condition: condition },
+            pos: pos,
         }
     }
 
@@ -214,31 +209,29 @@ impl AstStatement {
     pub fn expression_statement(expression: AstExpression) -> AstStatement {
         let pos = expression.pos;
         AstStatement {
-            stmt: AstStatementData::Expression {
-                expression: expression
-            },
-            pos: pos
+            stmt: AstStatementData::Expression { expression: expression },
+            pos: pos,
         }
     }
 
     pub fn break_stmt(pos: usize) -> AstStatement {
         AstStatement {
             stmt: AstStatementData::Break,
-            pos: pos
+            pos: pos,
         }
     }
 
     pub fn continue_stmt(pos: usize) -> AstStatement {
         AstStatement {
             stmt: AstStatementData::Continue,
-            pos: pos
+            pos: pos,
         }
     }
 
     pub fn noop(pos: usize) -> AstStatement {
         AstStatement {
             stmt: AstStatementData::NoOp,
-            pos: pos
+            pos: pos,
         }
     }
 }
@@ -247,7 +240,7 @@ impl AstStatement {
 pub struct AstExpression {
     pub expr: AstExpressionData,
     pub ty: Ty,
-    pub pos: usize
+    pub pos: usize,
 }
 
 type SubExpression = Box<AstExpression>;
@@ -281,8 +274,8 @@ pub enum AstExpressionData {
     BinOp {
         kind: BinOpKind,
         lhs: SubExpression,
-        rhs: SubExpression
-    }
+        rhs: SubExpression,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,16 +296,15 @@ pub enum BinOpKind {
     Xor,
     And,
     Or,
-    Set
+    Set,
 }
 
 impl AstExpression {
-
     pub fn string_literal(string: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::String(string),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -320,7 +312,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Char(ch),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -328,7 +320,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Int(num),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -336,7 +328,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::UInt(num),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -344,7 +336,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Float(num),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -352,16 +344,15 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Identifier(identifier),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
-    pub fn tuple_literal(values: Vec<AstExpression>,
-                         pos: usize) -> AstExpression {
+    pub fn tuple_literal(values: Vec<AstExpression>, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Tuple { values: values },
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -369,57 +360,53 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Array { elements: Vec::new() },
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
-    pub fn array_literal(elements: Vec<AstExpression>,
-                         pos: usize) -> AstExpression {
+    pub fn array_literal(elements: Vec<AstExpression>, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Array { elements: elements },
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
-    pub fn call(name: String,
-                args: Vec<AstExpression>,
-                pos: usize) -> AstExpression {
+    pub fn call(name: String, args: Vec<AstExpression>, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Call {
                 name: name,
                 args: args,
             },
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
-    pub fn access(lhs: AstExpression,
-                  idx: AstExpression,
-                  pos: usize) -> AstExpression {
+    pub fn access(lhs: AstExpression, idx: AstExpression, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Access {
                 accessible: Box::new(lhs),
                 idx: Box::new(idx),
             },
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
     pub fn binop(lhs: AstExpression,
                  rhs: AstExpression,
                  binop: BinOpKind,
-                 pos: usize) -> AstExpression {
+                 pos: usize)
+                 -> AstExpression {
         AstExpression {
             expr: AstExpressionData::BinOp {
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
-                kind: binop
+                kind: binop,
             },
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -427,7 +414,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Not(Box::new(lhs)),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -435,7 +422,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Negate(Box::new(lhs)),
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -443,7 +430,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Nothing,
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -451,7 +438,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::True,
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 
@@ -459,7 +446,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::False,
             ty: 0,
-            pos: pos
+            pos: pos,
         }
     }
 }

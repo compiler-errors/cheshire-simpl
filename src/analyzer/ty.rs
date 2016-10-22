@@ -23,20 +23,20 @@ pub enum AnalyzeType {
     Tuple(Vec<Ty>),
     Array(Ty),
 
-    Same(Ty)
+    Same(Ty),
 }
 
 #[derive(Clone)]
 pub struct FnSignature {
     pub params: Vec<Ty>,
-    pub return_ty: Ty
+    pub return_ty: Ty,
 }
 
 impl FnSignature {
     pub fn new(params: Vec<Ty>, return_ty: Ty) -> FnSignature {
         FnSignature {
             params: params,
-            return_ty: return_ty
+            return_ty: return_ty,
         }
     }
 }

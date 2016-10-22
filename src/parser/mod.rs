@@ -34,7 +34,7 @@ pub struct Parser<'a> {
     next_token: Token,
 }
 
-impl <'a> Parser<'a> {
+impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Parser<'a> {
         Parser {
             lexer: lexer,
@@ -593,11 +593,9 @@ impl <'a> Parser<'a> {
                     self.ensure_not_infer(ty, pos)?;
                 }
                 Ok(())
-            },
-            &AstType::Infer => {
-                self.error_at(pos, format!("Infer `_` type not expected"))
             }
-            _ => Ok(())
+            &AstType::Infer => self.error_at(pos, format!("Infer `_` type not expected")),
+            _ => Ok(()),
         }
     }
 }
@@ -621,7 +619,7 @@ fn get_kind(t: Token) -> BinOpKind {
         Token::And => BinOpKind::And,
         Token::Pipe => BinOpKind::Or,
         Token::Equals => BinOpKind::Set,
-        _ => unreachable!()
+        _ => unreachable!(),
     }
 }
 
