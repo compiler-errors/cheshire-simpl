@@ -338,6 +338,7 @@ impl<'a> Lexer<'a> {
             "assert" => Token::Assert,
             "true" => Token::True,
             "false" => Token::False,
+            "null" => Token::Null,
 
             "Int" => Token::Int,
             "UInt" => Token::UInt,

@@ -1,5 +1,5 @@
 use util::FileReader;
-use analyzer::{Ty, TY_NOTHING};
+use analyzer::{Ty, TY_NOTHING, VarId};
 
 #[derive(Debug)]
 pub struct ParseFile<'a> {
@@ -23,6 +23,8 @@ pub struct AstFunction {
     pub parameter_list: Vec<AstFnParameter>,
     pub return_type: AstType,
     pub definition: AstBlock,
+    pub beginning_of_vars: VarId,
+    pub end_of_vars: VarId
 }
 
 impl AstFunction {
@@ -38,6 +40,8 @@ impl AstFunction {
             parameter_list: parameter_list,
             return_type: return_type,
             definition: definition,
+            beginning_of_vars: 0,
+            end_of_vars: 0
         }
     }
 }
@@ -111,6 +115,7 @@ pub enum AstStatementData {
         var_name: String,
         ty: AstType,
         value: AstExpression,
+        var_id: VarId,
     },
     If {
         condition: AstExpression,
@@ -147,6 +152,7 @@ impl AstStatement {
                 var_name: var_name,
                 ty: ty,
                 value: value,
+                var_id: 0
             },
             pos: pos,
         }
@@ -250,12 +256,16 @@ pub enum AstExpressionData {
     Nothing,
     True,
     False,
+    Null,
     String(String),
     Int(String),
     UInt(String),
     Float(String),
     Char(char),
-    Identifier(String),
+    Identifier {
+        name: String,
+        var_id: VarId
+    },
     Tuple { values: Vec<AstExpression> },
     Array { elements: Vec<AstExpression> },
 
@@ -342,7 +352,10 @@ impl AstExpression {
 
     pub fn identifier(identifier: String, pos: usize) -> AstExpression {
         AstExpression {
-            expr: AstExpressionData::Identifier(identifier),
+            expr: AstExpressionData::Identifier {
+                name: identifier,
+                var_id: 0
+            },
             ty: 0,
             pos: pos,
         }
@@ -445,6 +458,14 @@ impl AstExpression {
     pub fn false_lit(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::False,
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn null_lit(pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::Null,
             ty: 0,
             pos: pos,
         }

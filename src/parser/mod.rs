@@ -502,6 +502,10 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(AstExpression::false_lit(pos))
             }
+            Token::Null => {
+                self.bump();
+                Ok(AstExpression::null_lit(pos))
+            }
             _ => {
                 self.error(format!("Expected literal, identifier, `new` or `(`, found `{}`",
                                    self.next_token))

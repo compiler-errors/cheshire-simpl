@@ -46,6 +46,7 @@ pub enum Token {
     Assert,
     True,
     False,
+    Null,
 
     /* Privileged Types */
     Int,
@@ -112,6 +113,7 @@ impl Display for Token {
             &Token::Assert => write!(f, "assert"),
             &Token::True => write!(f, "true"),
             &Token::False => write!(f, "false"),
+            &Token::Null => write!(f, "null"),
             &Token::Int => write!(f, "Type (Int)"),
             &Token::UInt => write!(f, "Type (UInt)"),
             &Token::Bool => write!(f, "Type (Bool)"),

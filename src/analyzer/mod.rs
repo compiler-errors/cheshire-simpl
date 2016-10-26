@@ -7,35 +7,41 @@ use std::collections::HashMap;
 use std::process::exit;
 
 pub struct Analyzer<'a> {
-    functions: HashMap<String, FnSignature>,
-    variables: Vec<HashMap<String, Ty>>,
+    pub fn_signatures: HashMap<String, FnSignature>,
+    pub fns: HashMap<String, AstFunction>,
+    var_ids: Vec<HashMap<String, VarId>>,
+    pub var_tys: HashMap<VarId, Ty>,
+    var_new_id: VarId,
     return_ty: Ty,
 
     // File which is being analyzed
     file: Option<FileReader<'a>>,
 
     // Type System
-    ty_variables: HashMap<Ty, AnalyzeType>,
-    ty_new_id: u32,
+    pub ty_map: HashMap<Ty, AnalyzeType>,
+    ty_new_id: Ty,
 }
 
 impl<'a> Analyzer<'a> {
     pub fn new() -> Analyzer<'a> {
-        let mut ty_variables = HashMap::new();
-        ty_variables.insert(TY_NOTHING, AnalyzeType::Nothing);
-        ty_variables.insert(TY_BOOLEAN, AnalyzeType::Boolean);
-        ty_variables.insert(TY_INT, AnalyzeType::Int);
-        ty_variables.insert(TY_UINT, AnalyzeType::UInt);
-        ty_variables.insert(TY_FLOAT, AnalyzeType::Float);
-        ty_variables.insert(TY_CHAR, AnalyzeType::Char);
-        ty_variables.insert(TY_STRING, AnalyzeType::String);
+        let mut ty_map = HashMap::new();
+        ty_map.insert(TY_NOTHING, AnalyzeType::Nothing);
+        ty_map.insert(TY_BOOLEAN, AnalyzeType::Boolean);
+        ty_map.insert(TY_INT, AnalyzeType::Int);
+        ty_map.insert(TY_UINT, AnalyzeType::UInt);
+        ty_map.insert(TY_FLOAT, AnalyzeType::Float);
+        ty_map.insert(TY_CHAR, AnalyzeType::Char);
+        ty_map.insert(TY_STRING, AnalyzeType::String);
 
         Analyzer {
-            functions: HashMap::new(),
-            variables: Vec::new(),
+            fn_signatures: HashMap::new(),
+            fns: HashMap::new(),
+            var_ids: Vec::new(),
+            var_tys: HashMap::new(),
+            var_new_id: VAR_FIRST_NEW_ID,
             return_ty: 0,
             file: None,
-            ty_variables: ty_variables,
+            ty_map: ty_map,
             ty_new_id: TY_FIRST_NEW_ID,
         }
     }
@@ -44,26 +50,28 @@ impl<'a> Analyzer<'a> {
         self.file = Some(f.file);
 
         for fun in &f.functions {
-            if self.functions.contains_key(&fun.name) {
+            if self.fn_signatures.contains_key(&fun.name) {
                 self.report_analyze_err_at(fun.pos,
                                            format!("Duplicate function name `{}`", fun.name));
             }
 
             let arg_tys: Vec<_> = fun.parameter_list
-                .iter()
-                .map(|p| self.initialize_ty(&p.ty))
-                .collect();
+                                     .iter()
+                                     .map(|p| self.initialize_ty(&p.ty))
+                                     .collect();
             let return_ty = self.initialize_ty(&fun.return_type);
-            self.functions.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
+            self.fn_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
         }
 
-        for fun in &mut f.functions {
-            self.analyze_function(fun);
+        for mut fun in f.functions.drain(..) {
+            self.analyze_function(&mut fun);
+            self.fns.insert(fun.name.clone(), fun);
         }
     }
 
     pub fn analyze_function(&mut self, f: &mut AstFunction) {
         self.raise();
+        f.beginning_of_vars = self.var_new_id;
 
         for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut f.parameter_list {
             let param_ty = self.initialize_ty(ty);
@@ -74,10 +82,12 @@ impl<'a> Analyzer<'a> {
         self.set_return_type(return_ty);
         self.analyze_block(&mut f.definition);
 
+        f.end_of_vars = self.var_new_id;
         self.fall();
     }
 
     fn analyze_block(&mut self, block: &mut AstBlock) {
+        //TODO: make sure break and continue exist only in whiles!!!!
         self.raise();
 
         for stmt in &mut block.statements {
@@ -93,11 +103,11 @@ impl<'a> Analyzer<'a> {
             &mut AstStatementData::Block { ref mut block } => {
                 self.analyze_block(block);
             }
-            &mut AstStatementData::Let { ref mut var_name, ref mut ty, ref mut value } => {
+            &mut AstStatementData::Let { ref mut var_name, ref mut ty, ref mut value, ref mut var_id } => {
                 let let_ty = self.initialize_ty(ty);
                 let expr_ty = self.typecheck_expr(value);
                 self.union_ty(let_ty, expr_ty, pos);
-                self.declare_variable(var_name, let_ty, pos);
+                *var_id = self.declare_variable(var_name, let_ty, pos);
             }
             &mut AstStatementData::If { ref mut condition, ref mut block, ref mut else_block } => {
                 let ty = self.typecheck_expr(condition);
@@ -106,6 +116,7 @@ impl<'a> Analyzer<'a> {
                 self.analyze_block(else_block);
             }
             &mut AstStatementData::While { ref mut condition, ref mut block } => {
+                //TODO: make sure break and continue exist only in whiles!!!!
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos);
                 self.analyze_block(block);
@@ -137,12 +148,16 @@ impl<'a> Analyzer<'a> {
             &mut AstExpressionData::Nothing => TY_NOTHING,
             &mut AstExpressionData::True => TY_BOOLEAN,
             &mut AstExpressionData::False => TY_BOOLEAN,
+            &mut AstExpressionData::Null => self.new_null_infer_ty(),
             &mut AstExpressionData::String(_) => TY_STRING,
             &mut AstExpressionData::Int(_) => TY_INT,
             &mut AstExpressionData::UInt(_) => TY_UINT,
             &mut AstExpressionData::Float(_) => TY_FLOAT,
             &mut AstExpressionData::Char(_) => TY_CHAR,
-            &mut AstExpressionData::Identifier(ref name) => self.get_variable_type(name, pos),
+            &mut AstExpressionData::Identifier { ref name, ref mut var_id } => {
+                *var_id = self.get_variable_id(name, pos);
+                self.get_variable_type(*var_id)
+            }
             &mut AstExpressionData::Tuple { ref mut values } => {
                 let mut tys = Vec::new();
                 for ref mut value in values {
@@ -151,7 +166,7 @@ impl<'a> Analyzer<'a> {
                 self.make_tuple_ty(tys)
             }
             &mut AstExpressionData::Array { ref mut elements } => {
-                let ty = self.new_infer_type();
+                let ty = self.new_infer_ty();
                 for ref mut element in elements {
                     let elt_ty = self.typecheck_expr(element);
                     self.union_ty(ty, elt_ty, element.pos);
@@ -251,27 +266,32 @@ impl<'a> Analyzer<'a> {
     }
 
     fn raise(&mut self) {
-        self.variables.push(HashMap::new());
+        self.var_ids.push(HashMap::new());
     }
 
     fn fall(&mut self) {
-        self.variables.pop();
+        self.var_ids.pop();
     }
 
-    fn declare_variable(&mut self, name: &String, ty: Ty, pos: usize) {
-        if self.variables.last_mut().unwrap().contains_key(name) {
+    fn declare_variable(&mut self, name: &String, ty: Ty, pos: usize) -> VarId {
+        let id = self.var_new_id;
+        self.var_new_id += 1;
+
+        if self.var_ids.last_mut().unwrap().contains_key(name) {
             self.report_analyze_err_at(pos,
                                        format!("Variable with name `{}` already declared in \
                                                 scope",
                                                name));
         }
 
-        let scope = self.variables.last_mut().unwrap();
-        scope.insert(name.clone(), ty);
+        self.var_ids.last_mut().unwrap().insert(name.clone(), id);
+        self.var_tys.insert(id, ty);
+
+        id
     }
 
-    fn get_variable_type(&mut self, name: &String, pos: usize) -> Ty {
-        for scope in self.variables.iter().rev() {
+    fn get_variable_id(&mut self, name: &String, pos: usize) -> VarId {
+        for scope in self.var_ids.iter().rev() {
             if scope.contains_key(name) {
                 return scope[name];
             }
@@ -281,8 +301,12 @@ impl<'a> Analyzer<'a> {
                                    format!("Variable with name `{}` not declared in scope", name));
     }
 
+    fn get_variable_type(&mut self, var_id: VarId) -> Ty {
+        self.var_tys[&var_id]
+    }
+
     fn get_function_signature(&mut self, name: &String) -> FnSignature {
-        self.functions.get_mut(name).unwrap().clone() //TODO: add error panic!("")
+        self.fn_signatures.get_mut(name).unwrap().clone() //TODO: add error panic!("")
     }
 
     fn set_return_type(&mut self, return_ty: Ty) {
@@ -316,19 +340,27 @@ impl<'a> Analyzer<'a> {
             }
         };
 
-        self.ty_variables.insert(ty_id, analyze_ty);
+        self.ty_map.insert(ty_id, analyze_ty);
         ty_id
     }
 
-    fn new_infer_type(&mut self) -> Ty {
+    fn new_infer_ty(&mut self) -> Ty {
         self.initialize_ty(&mut AstType::Infer)
+    }
+
+    fn new_null_infer_ty(&mut self) -> Ty {
+        let ty_id = self.ty_new_id;
+        self.ty_new_id += 1;
+        self.ty_map.insert(ty_id, AnalyzeType::NullInfer);
+
+        ty_id
     }
 
     fn make_tuple_ty(&mut self, tys: Vec<Ty>) -> Ty {
         let ty_id = self.ty_new_id;
         self.ty_new_id += 1;
 
-        self.ty_variables.insert(ty_id, AnalyzeType::Tuple(tys)); //TODO: expect none
+        self.ty_map.insert(ty_id, AnalyzeType::Tuple(tys)); //TODO: expect none
         ty_id
     }
 
@@ -336,7 +368,7 @@ impl<'a> Analyzer<'a> {
         let ty_id = self.ty_new_id;
         self.ty_new_id += 1;
 
-        self.ty_variables.insert(ty_id, AnalyzeType::Array(inner_ty));
+        self.ty_map.insert(ty_id, AnalyzeType::Array(inner_ty));
         ty_id
     }
 
@@ -345,22 +377,36 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        if let AnalyzeType::Same(ty1_same) = self.ty_variables[&ty1] {
+        if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
             self.union_ty(ty1_same, ty2, pos);
             return;
         }
 
-        if let AnalyzeType::Same(ty2_same) = self.ty_variables[&ty2] {
+        if let AnalyzeType::Same(ty2_same) = self.ty_map[&ty2] {
             self.union_ty(ty1, ty2_same, pos);
             return;
         }
 
-        match (self.ty_variables[&ty1].clone(), self.ty_variables[&ty2].clone()) {
+        match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) {
             (AnalyzeType::Infer, _) => {
-                self.ty_variables.insert(ty1, AnalyzeType::Same(ty2));
+                self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
             }
-            (_, AnalyzeType::Infer) => {
-                self.ty_variables.insert(ty2, AnalyzeType::Same(ty1));
+            (_, AnalyzeType::NullInfer) => {
+                self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
+            }
+            (AnalyzeType::NullInfer, t) => {
+                if !self.is_nullable(t) {
+                    self.report_analyze_err_at(pos,
+                                               format!("Null can only be assigned to types which are nullable."));
+                }
+                self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
+            }
+            (t, AnalyzeType::Infer) => {
+                if !self.is_nullable(t) {
+                    self.report_analyze_err_at(pos,
+                                               format!("Null can only be assigned to types which are nullable."));
+                }
+                self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
             }
             (AnalyzeType::Nothing, AnalyzeType::Nothing) |
             (AnalyzeType::Boolean, AnalyzeType::Boolean) |
@@ -388,8 +434,16 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn is_nullable(&self, ty: AnalyzeType) -> bool {
+        match ty {
+            AnalyzeType::String |
+            AnalyzeType::Array(_) => true,
+            _ => false
+        }
+    }
+
     fn extract_array_element_ty(&mut self, array_ty: Ty, pos: usize) -> Ty {
-        match self.ty_variables[&array_ty] {
+        match self.ty_map[&array_ty] {
             AnalyzeType::Same(same_ty) => self.extract_array_element_ty(same_ty, pos),
             AnalyzeType::Array(inner_ty) => inner_ty,
             _ => self.report_analyze_err_at(pos, format!("Cannot extract array type")),
@@ -397,7 +451,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn is_boolean_ty(&self, ty: Ty) -> bool {
-        match self.ty_variables[&ty] {
+        match self.ty_map[&ty] {
             AnalyzeType::Same(same_ty) => self.is_boolean_ty(same_ty),
             AnalyzeType::Boolean => true,
             _ => false,
@@ -405,7 +459,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn is_numeric_ty(&self, ty: Ty) -> bool {
-        match self.ty_variables[&ty] {
+        match self.ty_map[&ty] {
             AnalyzeType::Same(same_ty) => self.is_numeric_ty(same_ty),
             AnalyzeType::Int | AnalyzeType::UInt | AnalyzeType::Float => true,
             _ => false,

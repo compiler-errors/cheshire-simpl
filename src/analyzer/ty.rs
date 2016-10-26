@@ -1,3 +1,4 @@
+pub type VarId = u32;
 pub type Ty = u32;
 
 pub const TY_NOTHING: Ty = 1;
@@ -9,10 +10,13 @@ pub const TY_CHAR: Ty = 6;
 pub const TY_STRING: Ty = 7;
 
 pub const TY_FIRST_NEW_ID: Ty = 8;
+pub const VAR_FIRST_NEW_ID: VarId = 1;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum AnalyzeType {
     Infer,
+    NullInfer,
+
     Nothing,
     Boolean,
     Int,

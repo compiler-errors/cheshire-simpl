@@ -1,16 +1,17 @@
-fn main() -> (Bool, Bool) {
-    let a: Bool = true.
-    let b: _ = false.
+fn main() -> Int {
+  let s = 1.
+  let t = 100.
 
-    if a & b {
-        return (a, b).
-    }
+  while t > 0 {
+    let k = 1000.
+    s = s * k.
+    t = t - 1.
+  }
+
+  return s.
 }
 
-fn fibonacci(i: UInt) -> UInt {
-    if i == 0u | i == 2u {
-        return i.
-    }
-
-    return fibonacci(i - 1u) + fibonacci(i - 2u).
+fn test_variables(arr: [Int], i: UInt) -> Int {
+  let arr_i = arr[i].
+  return arr_i.
 }
