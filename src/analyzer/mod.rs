@@ -9,10 +9,16 @@ use std::process::exit;
 pub struct Analyzer<'a> {
     pub fn_signatures: HashMap<String, FnSignature>,
     pub fns: HashMap<String, AstFunction>,
+
+    // Keep track of variable information
     var_ids: Vec<HashMap<String, VarId>>,
     pub var_tys: HashMap<VarId, Ty>,
     var_new_id: VarId,
     return_ty: Ty,
+
+    // Keep track of string information
+    str_new_id: StringId,
+    pub strings: HashMap<StringId, String>,
 
     // File which is being analyzed
     file: Option<FileReader<'a>>,
@@ -40,6 +46,8 @@ impl<'a> Analyzer<'a> {
             var_tys: HashMap::new(),
             var_new_id: VAR_FIRST_NEW_ID,
             return_ty: 0,
+            str_new_id: STR_FIRST_NEW_ID,
+            strings: HashMap::new(),
             file: None,
             ty_map: ty_map,
             ty_new_id: TY_FIRST_NEW_ID,
@@ -56,9 +64,9 @@ impl<'a> Analyzer<'a> {
             }
 
             let arg_tys: Vec<_> = fun.parameter_list
-                                     .iter()
-                                     .map(|p| self.initialize_ty(&p.ty))
-                                     .collect();
+                .iter()
+                .map(|p| self.initialize_ty(&p.ty))
+                .collect();
             let return_ty = self.initialize_ty(&fun.return_type);
             self.fn_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
         }
@@ -87,7 +95,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_block(&mut self, block: &mut AstBlock) {
-        //TODO: make sure break and continue exist only in whiles!!!!
+        // TODO: make sure break and continue exist only in whiles!!!!
         self.raise();
 
         for stmt in &mut block.statements {
@@ -103,7 +111,10 @@ impl<'a> Analyzer<'a> {
             &mut AstStatementData::Block { ref mut block } => {
                 self.analyze_block(block);
             }
-            &mut AstStatementData::Let { ref mut var_name, ref mut ty, ref mut value, ref mut var_id } => {
+            &mut AstStatementData::Let { ref mut var_name,
+                                         ref mut ty,
+                                         ref mut value,
+                                         ref mut var_id } => {
                 let let_ty = self.initialize_ty(ty);
                 let expr_ty = self.typecheck_expr(value);
                 self.union_ty(let_ty, expr_ty, pos);
@@ -116,7 +127,7 @@ impl<'a> Analyzer<'a> {
                 self.analyze_block(else_block);
             }
             &mut AstStatementData::While { ref mut condition, ref mut block } => {
-                //TODO: make sure break and continue exist only in whiles!!!!
+                // TODO: make sure break and continue exist only in whiles!!!!
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos);
                 self.analyze_block(block);
@@ -149,7 +160,11 @@ impl<'a> Analyzer<'a> {
             &mut AstExpressionData::True => TY_BOOLEAN,
             &mut AstExpressionData::False => TY_BOOLEAN,
             &mut AstExpressionData::Null => self.new_null_infer_ty(),
-            &mut AstExpressionData::String(_) => TY_STRING,
+            &mut AstExpressionData::String { ref string, ref mut id, .. } => {
+                *id = self.str_new_id;
+                self.str_new_id += 1;
+                TY_STRING
+            }
             &mut AstExpressionData::Int(_) => TY_INT,
             &mut AstExpressionData::UInt(_) => TY_UINT,
             &mut AstExpressionData::Float(_) => TY_FLOAT,
@@ -191,12 +206,12 @@ impl<'a> Analyzer<'a> {
             }
             &mut AstExpressionData::Not(ref mut expr) => {
                 let ty = self.typecheck_expr(expr);
-                if self.is_numeric_ty(ty) || self.is_boolean_ty(ty) {
+                if (self.is_numeric_ty(ty) && !self.is_float_ty(ty)) || self.is_boolean_ty(ty) {
                     ty
                 } else {
                     self.report_analyze_err_at(expr.pos,
-                                               format!("Expected sub-expression of type `Int` \
-                                                        or `Bool`"));
+                                               format!("Expected sub-expression of type `Int`, \
+                                                        `UInt` or `Bool`"));
                 }
             }
             &mut AstExpressionData::Negate(ref mut expr) => {
@@ -205,7 +220,7 @@ impl<'a> Analyzer<'a> {
                     ty
                 } else {
                     self.report_analyze_err_at(expr.pos,
-                                               format!("Expected sub-expression of type `Int`"));
+                                               format!("Expected numeric sub-expression"));
                 }
             }
             &mut AstExpressionData::BinOp { kind, ref mut lhs, ref mut rhs } => {
@@ -214,12 +229,17 @@ impl<'a> Analyzer<'a> {
                 self.union_ty(lhs_ty, rhs_ty, pos);
                 match kind {
                     BinOpKind::Multiply | BinOpKind::Divide | BinOpKind::Modulo |
-                    BinOpKind::Add | BinOpKind::Subtract | BinOpKind::ShiftLeft |
-                    BinOpKind::ShiftRight => {
+                    BinOpKind::Add | BinOpKind::Subtract => {
                         if !self.is_numeric_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
-                                                       format!("Expected sub-expression of type \
-                                                                `Int`"));
+                                                       format!("Expected numeric sub-expression"));
+                        }
+                        lhs_ty
+                    }
+                    BinOpKind::ShiftLeft | BinOpKind::ShiftRight => {
+                        if !self.is_numeric_ty(lhs_ty) || self.is_float_ty(lhs_ty) {
+                            self.report_analyze_err_at(pos,
+                                                       format!("Expected integer sub-expression"));
                         }
                         lhs_ty
                     }
@@ -227,12 +247,12 @@ impl<'a> Analyzer<'a> {
                     BinOpKind::LessEqual => {
                         if !self.is_numeric_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
-                                                       format!("Expected sub-expression of type \
-                                                                `Int`"));
+                                                       format!("Expected numeric sub-expression"));
                         }
                         TY_BOOLEAN
                     }
                     BinOpKind::Xor | BinOpKind::And | BinOpKind::Or => {
+                        //TODO: also numeric not float
                         if !self.is_boolean_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
                                                        format!("Expected sub-expression of type \
@@ -397,14 +417,16 @@ impl<'a> Analyzer<'a> {
             (AnalyzeType::NullInfer, t) => {
                 if !self.is_nullable(t) {
                     self.report_analyze_err_at(pos,
-                                               format!("Null can only be assigned to types which are nullable."));
+                                               format!("Null can only be assigned to types \
+                                                        which are nullable."));
                 }
                 self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
             }
             (t, AnalyzeType::Infer) => {
                 if !self.is_nullable(t) {
                     self.report_analyze_err_at(pos,
-                                               format!("Null can only be assigned to types which are nullable."));
+                                               format!("Null can only be assigned to types \
+                                                        which are nullable."));
                 }
                 self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
             }
@@ -438,7 +460,7 @@ impl<'a> Analyzer<'a> {
         match ty {
             AnalyzeType::String |
             AnalyzeType::Array(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -454,6 +476,14 @@ impl<'a> Analyzer<'a> {
         match self.ty_map[&ty] {
             AnalyzeType::Same(same_ty) => self.is_boolean_ty(same_ty),
             AnalyzeType::Boolean => true,
+            _ => false,
+        }
+    }
+
+    fn is_float_ty(&self, ty: Ty) -> bool {
+        match self.ty_map[&ty] {
+            AnalyzeType::Same(same_ty) => self.is_float_ty(same_ty),
+            AnalyzeType::Float => true,
             _ => false,
         }
     }

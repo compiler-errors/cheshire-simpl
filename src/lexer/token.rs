@@ -58,7 +58,7 @@ pub enum Token {
     Infer,
 
     /* Literals */
-    String(String),
+    String(String, u32),
     IntLiteral(String),
     UIntLiteral(String),
     FloatLiteral(String),
@@ -121,7 +121,7 @@ impl Display for Token {
             &Token::Char => write!(f, "Type (Char)"),
             &Token::StringType => write!(f, "Type (String)"),
             &Token::Infer => write!(f, "Type (_)"),
-            &Token::String(_) => write!(f, "String"),
+            &Token::String(..) => write!(f, "String"),
             &Token::IntLiteral(_) => write!(f, "Number"),
             &Token::UIntLiteral(_) => write!(f, "Number"),
             &Token::FloatLiteral(_) => write!(f, "Number"),

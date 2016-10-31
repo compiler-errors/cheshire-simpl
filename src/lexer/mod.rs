@@ -210,22 +210,24 @@ impl<'a> Lexer<'a> {
     /// Scans a new parsed string token.
     fn scan_string(&mut self) -> Result<Token, String> {
         self.bump(1); // Blindly consume the quote character
+        let mut len = 0;
         let mut string = "".to_string();
 
         loop {
             match self.current_char() {
                 '\\' => {
                     match self.next_char() {
-                        'r' => string += "\r",
-                        'n' => string += "\n",
-                        't' => string += "\t",
-                        '"' => string += "\"",
+                        'r' => string += "\\0D",
+                        'n' => string += "\\0A",
+                        't' => string += "\\09",
+                        '"' => string += "\\22",
                         '\'' => string += "'",
-                        '\\' => string += "\\",
+                        '\\' => string += "\\\\",
                         c => {
                             return Err(format!("Unknown escaped character in string '\\{}'", c));
                         }
                     }
+                    len += 1;
                     self.bump(2);
                 }
                 '\"' => {
@@ -237,12 +239,13 @@ impl<'a> Lexer<'a> {
                 }
                 c => {
                     string.push(c);
+                    len += 1;
                     self.bump(1);
                 }
             }
         }
 
-        return Ok(Token::String(string));
+        return Ok(Token::String(string, len));
     }
 
     /// Scans a single character literal token.
@@ -308,7 +311,6 @@ impl<'a> Lexer<'a> {
             Ok(Token::FloatLiteral(string))
         } else if self.current_char() == 'u' {
             self.bump(1);
-
             Ok(Token::UIntLiteral(string))
         } else {
             Ok(Token::IntLiteral(string))

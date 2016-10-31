@@ -1,5 +1,5 @@
 use util::FileReader;
-use analyzer::{Ty, TY_NOTHING, VarId};
+use analyzer::{Ty, TY_NOTHING, VarId, StringId};
 
 #[derive(Debug)]
 pub struct ParseFile<'a> {
@@ -24,7 +24,7 @@ pub struct AstFunction {
     pub return_type: AstType,
     pub definition: AstBlock,
     pub beginning_of_vars: VarId,
-    pub end_of_vars: VarId
+    pub end_of_vars: VarId,
 }
 
 impl AstFunction {
@@ -41,7 +41,7 @@ impl AstFunction {
             return_type: return_type,
             definition: definition,
             beginning_of_vars: 0,
-            end_of_vars: 0
+            end_of_vars: 0,
         }
     }
 }
@@ -152,7 +152,7 @@ impl AstStatement {
                 var_name: var_name,
                 ty: ty,
                 value: value,
-                var_id: 0
+                var_id: 0,
             },
             pos: pos,
         }
@@ -257,15 +257,16 @@ pub enum AstExpressionData {
     True,
     False,
     Null,
-    String(String),
+    String {
+        string: String,
+        len: u32,
+        id: StringId,
+    },
     Int(String),
     UInt(String),
     Float(String),
     Char(char),
-    Identifier {
-        name: String,
-        var_id: VarId
-    },
+    Identifier { name: String, var_id: VarId },
     Tuple { values: Vec<AstExpression> },
     Array { elements: Vec<AstExpression> },
 
@@ -310,9 +311,13 @@ pub enum BinOpKind {
 }
 
 impl AstExpression {
-    pub fn string_literal(string: String, pos: usize) -> AstExpression {
+    pub fn string_literal(string: String, len: u32, pos: usize) -> AstExpression {
         AstExpression {
-            expr: AstExpressionData::String(string),
+            expr: AstExpressionData::String {
+                string: string,
+                len: len,
+                id: 0,
+            },
             ty: 0,
             pos: pos,
         }
@@ -354,7 +359,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Identifier {
                 name: identifier,
-                var_id: 0
+                var_id: 0,
             },
             ty: 0,
             pos: pos,

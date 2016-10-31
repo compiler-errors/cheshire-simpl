@@ -465,9 +465,9 @@ impl<'a> Parser<'a> {
         match self.next_token.clone() {
             Token::LSqBracket => self.parse_array_literal(),
             Token::LParen => self.parse_paren_expr(),
-            Token::String(string) => {
+            Token::String(string, len) => {
                 self.bump();
-                Ok(AstExpression::string_literal(string, pos))
+                Ok(AstExpression::string_literal(string, len, pos))
             }
             Token::IntLiteral(num) => {
                 self.bump();
