@@ -278,6 +278,10 @@ pub enum AstExpressionData {
         accessible: Box<AstExpression>,
         idx: Box<AstExpression>,
     },
+    TupleAccess {
+        accessible: Box<AstExpression>,
+        idx: u32
+    },
 
     Not(SubExpression),
     Negate(SubExpression),
@@ -406,6 +410,17 @@ impl AstExpression {
             expr: AstExpressionData::Access {
                 accessible: Box::new(lhs),
                 idx: Box::new(idx),
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn tuple_access(lhs: AstExpression, idx: u32, pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::TupleAccess {
+                accessible: Box::new(lhs),
+                idx: idx,
             },
             ty: 0,
             pos: pos,

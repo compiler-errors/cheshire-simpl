@@ -10,6 +10,7 @@ type ExprId = u32;
 enum ExprRef {
     Constant(String),
     ExprId(ExprId),
+    VarId(VarId),
     None,
 }
 
@@ -75,7 +76,7 @@ impl Out {
 
         let returns = self.output_block(&body.definition, None);
         if !returns {
-            if self.is_void_ty(sig.return_ty) {
+            if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
                 println!("ret {{}} undef");
             } else {
                 println!("ret {} zeroinitializer", ret_ty_str);
@@ -333,6 +334,15 @@ impl Out {
                          valueptr_id);
                 ExprRef::ExprId(value_id)
             }
+            &AstExpressionData::TupleAccess { ref accessible, idx } => {
+                let tuple_ref = self.output_expression(accessible);
+                let tuple_ty_str = self.ty_str(accessible.ty);
+                let element_id = self.expr_new_id;
+                self.expr_new_id += 1;
+                println!("%expr{} = extractvalue {} {}, {}",
+                         element_id, tuple_ty_str, tuple_ref, idx);
+                ExprRef::ExprId(element_id)
+            }
             &AstExpressionData::Not(ref expr) => {
                 let expr_ref = self.output_expression(expr);
                 let expr_ty = self.ty_str(expr.ty);
@@ -349,7 +359,132 @@ impl Out {
                 println!("%expr{} = sub {} 0, {}", neg_id, expr_ty, expr_ref);
                 ExprRef::ExprId(neg_id)
             }
-            &AstExpressionData::BinOp { kind, ref lhs, ref rhs } => unimplemented!(),
+            &AstExpressionData::BinOp { kind, ref lhs, ref rhs } => {
+                if kind == BinOpKind::Set {
+                    let lhs_ref = self.output_expression_lval(lhs);
+                    let rhs_ref = self.output_expression(rhs);
+                    let expr_ty = self.ty_str(lhs.ty);
+                    println!("store {} {}, {}* {}", expr_ty, rhs_ref, expr_ty, lhs_ref);
+                    rhs_ref
+                } else {
+                    let lhs_ref = self.output_expression(lhs);
+                    let rhs_ref = self.output_expression(rhs);
+                    let op_ty = self.ty_str(lhs.ty);
+                    let op_str = self.get_op_string(kind, lhs.ty);
+                    let out_id = self.expr_new_id;
+                    self.expr_new_id += 1;
+                    println!("%expr{} = {} {} {}, {}", out_id, op_str, op_ty, lhs_ref, rhs_ref);
+                    ExprRef::ExprId(out_id)
+                }
+            }
+        }
+    }
+
+    fn output_expression_lval(&mut self, expr: &AstExpression) -> ExprRef {
+        match &expr.expr {
+            &AstExpressionData::Identifier { var_id, .. } => {
+                ExprRef::VarId(var_id)
+            }
+            &AstExpressionData::Access { ref accessible, ref idx } => {
+                let accessible_ref = self.output_expression(accessible);
+                let idx_ref = self.output_expression(idx);
+                let arrptr_id = self.expr_new_id + 0;
+                let valueptr_id = self.expr_new_id + 1;
+                self.expr_new_id += 2;
+                let inner_ty_str = self.ty_str(expr.ty);
+                println!("%expr{} = extractvalue {{i64, {}*}} {}, 1",
+                         arrptr_id,
+                         inner_ty_str,
+                         accessible_ref);
+                // TODO: Test
+                println!("%expr{} = getelementptr {}, {}* %expr{}, i64 {}",
+                         valueptr_id,
+                         inner_ty_str,
+                         inner_ty_str,
+                         arrptr_id,
+                         idx_ref);
+                ExprRef::ExprId(valueptr_id)
+            }
+            &AstExpressionData::TupleAccess { ref accessible, idx } => {
+                let tuple_ref = self.output_expression_lval(accessible);
+                let tuple_ty_str = self.ty_str(accessible.ty);
+                let element_id = self.expr_new_id;
+                self.expr_new_id += 1;
+                println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
+                         element_id, tuple_ty_str, tuple_ty_str, tuple_ref, idx);
+                ExprRef::ExprId(element_id)
+            }
+            _ => unreachable!()
+        }
+    }
+
+    fn get_op_string(&self, kind: BinOpKind, ty: Ty) -> &'static str {
+        if self.is_simple_ty(ty, AnalyzeType::Int) {
+            match kind {
+                BinOpKind::Multiply => "mul",
+                BinOpKind::Divide => "sdiv",
+                BinOpKind::Modulo => "srem",
+                BinOpKind::Add => "add",
+                BinOpKind::Subtract => "sub",
+                BinOpKind::ShiftLeft => "shl",
+                BinOpKind::ShiftRight => "ashr",
+                BinOpKind::Greater => "icmp sgt",
+                BinOpKind::Less => "icmp slt",
+                BinOpKind::GreaterEqual => "icmp sge",
+                BinOpKind::LessEqual => "icmp sle",
+                BinOpKind::EqualsEquals => "icmp eq",
+                BinOpKind::NotEqual => "icmp ne",
+                BinOpKind::Xor => "xor",
+                BinOpKind::And => "and",
+                BinOpKind::Or => "or",
+                BinOpKind::Set => unreachable!()
+            }
+        } else if self.is_simple_ty(ty, AnalyzeType::UInt) {
+            match kind {
+                BinOpKind::Multiply => "mul",
+                BinOpKind::Divide => "udiv",
+                BinOpKind::Modulo => "urem",
+                BinOpKind::Add => "add",
+                BinOpKind::Subtract => "sub",
+                BinOpKind::ShiftLeft => "shl",
+                BinOpKind::ShiftRight => "lshr",
+                BinOpKind::Greater => "icmp ugt",
+                BinOpKind::Less => "icmp ult",
+                BinOpKind::GreaterEqual => "icmp uge",
+                BinOpKind::LessEqual => "icmp ule",
+                BinOpKind::EqualsEquals => "icmp eq",
+                BinOpKind::NotEqual => "icmp ne",
+                BinOpKind::Xor => "xor",
+                BinOpKind::And => "and",
+                BinOpKind::Or => "or",
+                BinOpKind::Set => unreachable!()
+            }
+        } else if self.is_simple_ty(ty, AnalyzeType::Float) {
+            match kind {
+                BinOpKind::Multiply => "fmul",
+                BinOpKind::Divide => "fdiv",
+                BinOpKind::Modulo => "frem",
+                BinOpKind::Add => "fadd",
+                BinOpKind::Subtract => "fsub",
+                BinOpKind::Greater => "fcmp gt",
+                BinOpKind::Less => "fcmp lt",
+                BinOpKind::GreaterEqual => "fcmp gre",
+                BinOpKind::LessEqual => "fcmp lte",
+                BinOpKind::EqualsEquals => "fcmp eq",
+                BinOpKind::NotEqual => "fcmp ne",
+                _ => unreachable!()
+            }
+        } else if self.is_simple_ty(ty, AnalyzeType::Boolean) {
+            match kind {
+                BinOpKind::EqualsEquals => "icmp eq",
+                BinOpKind::NotEqual => "icmp ne",
+                BinOpKind::Xor => "xor",
+                BinOpKind::And => "and",
+                BinOpKind::Or => "or",
+                _ => unreachable!()
+            }
+        } else {
+            unimplemented!() //TODO tuple eq, string eq, etc
         }
     }
 
@@ -361,7 +496,7 @@ impl Out {
         let analyze_ty = &self.ty_map[&ty];
 
         match analyze_ty {
-            &AnalyzeType::Nothing => "{{}}".to_string(),
+            &AnalyzeType::Nothing => "{}".to_string(),
             &AnalyzeType::Boolean => "i1".to_string(),
             &AnalyzeType::Int => "i64".to_string(),
             &AnalyzeType::UInt => "i64".to_string(),
@@ -387,11 +522,10 @@ impl Out {
         }
     }
 
-    fn is_void_ty(&self, ty: Ty) -> bool {
+    fn is_simple_ty(&self, ty: Ty, candidate: AnalyzeType) -> bool {
         match &self.ty_map[&ty] {
-            &AnalyzeType::Same(array_ty_same) => self.is_void_ty(array_ty_same),
-            &AnalyzeType::Array(inner_ty) => true,
-            _ => false,
+            &AnalyzeType::Same(ty_same) => self.is_simple_ty(ty_same, candidate),
+            a => (*a == candidate)
         }
     }
 
@@ -409,6 +543,7 @@ impl Display for ExprRef {
         match self {
             &ExprRef::Constant(ref s) => write!(f, "{}", s),
             &ExprRef::ExprId(id) => write!(f, "%expr{}", id),
+            &ExprRef::VarId(id) => write!(f, "%var{}", id),
             &ExprRef::None => unreachable!(),
         }
     }

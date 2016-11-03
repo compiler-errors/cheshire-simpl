@@ -1,6 +1,7 @@
 mod ast;
 
 use std::process::exit;
+use std::str::FromStr;
 use lexer::{Lexer, Token};
 use util::FileReader;
 pub use self::ast::*;
@@ -93,6 +94,16 @@ impl<'a> Parser<'a> {
             Ok(ident)
         } else {
             self.error(format!("Expected token `Identifier`, found `{}`.", tok))
+        }
+    }
+
+    fn expect_get_number(&mut self) -> ParseResult<u32> {
+        let tok = self.next_token.clone();
+        if let Token::IntLiteral(num) = tok {
+            self.bump();
+            Ok(u32::from_str(&num).unwrap())
+        } else {
+            self.error(format!("Expected token `IntLiteral`, found `{}`.", tok))
         }
     }
 
@@ -420,6 +431,12 @@ impl<'a> Parser<'a> {
                     lhs = AstExpression::access(lhs, idx, pos);
                     continue;
                 }
+                Token::Colon => {
+                    self.bump();
+                    let idx = self.expect_get_number()?;
+                    lhs = AstExpression::tuple_access(lhs, idx, pos);
+                    continue;
+                }
                 _ => {}
             }
 
@@ -430,7 +447,8 @@ impl<'a> Parser<'a> {
 
             self.bump(); // Okay, consume the op
             let rhs = if op == Token::Equals {
-                self.parse_expr(new_prec)
+                self.ensure_lval(&lhs)?;
+                    self.parse_expr(new_prec)
             } else {
                 self.parse_expr(new_prec + 1)
             }?;
@@ -587,6 +605,17 @@ impl<'a> Parser<'a> {
         }
 
         Ok(args)
+    }
+
+    fn ensure_lval(&self, expr: &AstExpression) -> ParseResult<()> {
+        match &expr.expr {
+            &AstExpressionData::Identifier {..} |
+            &AstExpressionData::Access {..} => Ok(()),
+            &AstExpressionData::TupleAccess { ref accessible, .. } => {
+                self.ensure_lval(accessible)
+            }
+            _ => self.error_at(expr.pos, format!("Expected lval for left of `=`"))
+        }
     }
 
     fn ensure_not_infer(&mut self, ty: &AstType, pos: usize) -> ParseResult<()> {

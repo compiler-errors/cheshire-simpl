@@ -163,6 +163,7 @@ impl<'a> Analyzer<'a> {
             &mut AstExpressionData::String { ref string, ref mut id, .. } => {
                 *id = self.str_new_id;
                 self.str_new_id += 1;
+                self.strings.insert(*id, string.clone());
                 TY_STRING
             }
             &mut AstExpressionData::Int(_) => TY_INT,
@@ -203,6 +204,10 @@ impl<'a> Analyzer<'a> {
                 self.union_ty(idx_ty, TY_UINT, idx.pos);
                 let array_ty = self.typecheck_expr(accessible);
                 self.extract_array_element_ty(array_ty, accessible.pos)
+            }
+            &mut AstExpressionData::TupleAccess { ref mut accessible, idx } => {
+                let tuple_ty = self.typecheck_expr(accessible);
+                self.extract_tuple_element_ty(tuple_ty, idx, accessible.pos)
             }
             &mut AstExpressionData::Not(ref mut expr) => {
                 let ty = self.typecheck_expr(expr);
@@ -464,11 +469,25 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn extract_array_element_ty(&mut self, array_ty: Ty, pos: usize) -> Ty {
+    fn extract_array_element_ty(&self, array_ty: Ty, pos: usize) -> Ty {
         match self.ty_map[&array_ty] {
             AnalyzeType::Same(same_ty) => self.extract_array_element_ty(same_ty, pos),
             AnalyzeType::Array(inner_ty) => inner_ty,
             _ => self.report_analyze_err_at(pos, format!("Cannot extract array type")),
+        }
+    }
+
+    fn extract_tuple_element_ty(&self, tuple_ty: Ty, idx: u32, pos: usize) -> Ty {
+        match self.ty_map[&tuple_ty] {
+            AnalyzeType::Same(same_ty) => self.extract_tuple_element_ty(same_ty, idx, pos),
+            AnalyzeType::Tuple(ref tys) => {
+                if tys.len() <= (idx as usize) {
+                    self.report_analyze_err_at(pos, format!("Tuple access out of bounds"))
+                } else {
+                    tys[idx as usize]
+                }
+            }
+            _ => self.report_analyze_err_at(pos, format!("Cannot extract tuple type")),
         }
     }
 
