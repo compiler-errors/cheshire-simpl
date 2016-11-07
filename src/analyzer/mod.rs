@@ -6,31 +6,53 @@ use parser::*;
 use std::collections::HashMap;
 use std::process::exit;
 
+/** The analyzer module is mainly concerned with assigning type information and
+  * catching final errors (such as type errors), as well as associating each
+  * expression with a type, associating variables with a global number, and each
+  * string with a global number as well.
+  *
+  * In the future, the module should also be responsible for resolving the
+  * conversion of local names to global names `fn_name` to `pkg.pkg.fn_name`.
+  */
 pub struct Analyzer<'a> {
+    /// Map which associates a function name to a signature
     pub fn_signatures: HashMap<String, FnSignature>,
+    /// Map which associates a function name to its definition (block)
     pub fns: HashMap<String, AstFunction>,
 
+    /// Keep track of being inside a "breakable" block
+    pub breakable: bool,
+
     // Keep track of variable information
+    /// "Scoped map" which associates a variable name to its VarId
     var_ids: Vec<HashMap<String, VarId>>,
+    /// Map which associates a VarId to its underlying type
     pub var_tys: HashMap<VarId, Ty>,
+    /// Counter which stores the next free VarId
     var_new_id: VarId,
+    /// Variable storing the return type of the outer function
     return_ty: Ty,
 
     // Keep track of string information
+    /// Counter which stores the next free StringId
     str_new_id: StringId,
+    /// Map which associates a StringId with its corresponding String
     pub strings: HashMap<StringId, String>,
 
-    // File which is being analyzed
+    /// File which is currently being analyzed
     file: Option<FileReader<'a>>,
 
     // Type System
+    /// Map which associates a Ty id with an underlying AnalyzeType
     pub ty_map: HashMap<Ty, AnalyzeType>,
+    /// Counter which stores the next free Ty id
     ty_new_id: Ty,
 }
 
 impl<'a> Analyzer<'a> {
     pub fn new() -> Analyzer<'a> {
         let mut ty_map = HashMap::new();
+        // Insert all of the "basic" fundamental types
         ty_map.insert(TY_NOTHING, AnalyzeType::Nothing);
         ty_map.insert(TY_BOOLEAN, AnalyzeType::Boolean);
         ty_map.insert(TY_INT, AnalyzeType::Int);
@@ -42,6 +64,7 @@ impl<'a> Analyzer<'a> {
         Analyzer {
             fn_signatures: HashMap::new(),
             fns: HashMap::new(),
+            breakable: false,
             var_ids: Vec::new(),
             var_tys: HashMap::new(),
             var_new_id: VAR_FIRST_NEW_ID,
@@ -54,8 +77,9 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    /// Analyze a file
     pub fn analyze_file(&mut self, mut f: ParseFile<'a>) {
-        self.file = Some(f.file);
+        self.file = Some(f.file); //TODO: this is wonky, fix?
 
         for fun in &f.functions {
             if self.fn_signatures.contains_key(&fun.name) {
@@ -63,37 +87,53 @@ impl<'a> Analyzer<'a> {
                                            format!("Duplicate function name `{}`", fun.name));
             }
 
+            // Convert a  vec of AstType to Ty id by a mapping operation
             let arg_tys: Vec<_> = fun.parameter_list
                 .iter()
                 .map(|p| self.initialize_ty(&p.ty))
                 .collect();
             let return_ty = self.initialize_ty(&fun.return_type);
+            // And insert the function signature into a map associated with its name
             self.fn_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
         }
 
+        // Let's use a drain so we can take ownership of the function
         for mut fun in f.functions.drain(..) {
+            // First analyze the function
             self.analyze_function(&mut fun);
+            // And then store it so we can emit it later
             self.fns.insert(fun.name.clone(), fun);
         }
     }
 
-    pub fn analyze_function(&mut self, f: &mut AstFunction) {
+    /// Analyze a function
+    fn analyze_function(&mut self, f: &mut AstFunction) {
+        // Raise a scope level
         self.raise();
+        // Store the first VarId associated with the function
         f.beginning_of_vars = self.var_new_id;
 
+        // Declare the parameters as variables
         for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut f.parameter_list {
             let param_ty = self.initialize_ty(ty);
             self.declare_variable(name, param_ty, pos);
         }
 
+        // Save the return type
         let return_ty = self.initialize_ty(&mut f.return_type);
         self.set_return_type(return_ty);
+
+        // Analyze the function's body
         self.analyze_block(&mut f.definition);
 
+        // Store the last VarId associated with the function
+        // The VarId's used by the function are given by the range [beginning, end)
         f.end_of_vars = self.var_new_id;
+        // Lower the scope
         self.fall();
     }
 
+    /// Analyze a block of statements
     fn analyze_block(&mut self, block: &mut AstBlock) {
         // TODO: make sure break and continue exist only in whiles!!!!
         self.raise();
@@ -105,8 +145,10 @@ impl<'a> Analyzer<'a> {
         self.fall();
     }
 
+    /// Analyze a single statement
     fn analyze_stmt(&mut self, stmt: &mut AstStatement) {
-        let pos = stmt.pos;
+        let pos = stmt.pos; // Store the position of the statement (for errors!)
+
         match &mut stmt.stmt {
             &mut AstStatementData::Block { ref mut block } => {
                 self.analyze_block(block);
@@ -130,13 +172,18 @@ impl<'a> Analyzer<'a> {
                 // TODO: make sure break and continue exist only in whiles!!!!
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos);
+                let old_breakable = self.breakable;
+                self.breakable = true;
                 self.analyze_block(block);
+                self.breakable = old_breakable;
             }
             &mut AstStatementData::Break |
-            &mut AstStatementData::Continue |
-            &mut AstStatementData::NoOp => {
-                // TODO: nothing yet
+            &mut AstStatementData::Continue => {
+                if !self.breakable {
+                    self.report_analyze_err_at(expr.pos, format!("Cannot `break` or `continue` outside of a `while`"))
+                }
             }
+            &mut AstStatementData::NoOp => {}
             &mut AstStatementData::Return { ref mut value } => {
                 let ty = self.typecheck_expr(value);
                 let return_ty = self.get_return_type();
