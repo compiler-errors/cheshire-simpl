@@ -15,6 +15,15 @@ pub const VAR_FIRST_NEW_ID: VarId = 1;
 pub const STR_FIRST_NEW_ID: StringId = 1;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
+/** AnalyzeType is the type used by the Analyzer module.
+  *
+  * The types in this enum are pretty self explanatory,
+  * but one caveat that should be noticed is the Same
+  * type. Same(ty) essentially conveys that the type is
+  * identical to another type, without having to copy
+  * the contents of that type or other issues introduced
+  * by the Infer and Union processes.
+  */
 pub enum AnalyzeType {
     Infer,
     NullInfer,
@@ -33,6 +42,7 @@ pub enum AnalyzeType {
 }
 
 #[derive(Clone)]
+/// FnSignature stores the parameter and return types of a function.
 pub struct FnSignature {
     pub params: Vec<Ty>,
     pub return_ty: Ty,

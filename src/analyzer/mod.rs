@@ -6,7 +6,7 @@ use parser::*;
 use std::collections::HashMap;
 use std::process::exit;
 
-/** The analyzer module is mainly concerned with assigning type information and
+/** The analyzer "module" is mainly concerned with assigning type information and
   * catching final errors (such as type errors), as well as associating each
   * expression with a type, associating variables with a global number, and each
   * string with a global number as well.
@@ -157,14 +157,19 @@ impl<'a> Analyzer<'a> {
                                          ref mut ty,
                                          ref mut value,
                                          ref mut var_id } => {
+                // Initialize the declared type of the `let` (or infer)
                 let let_ty = self.initialize_ty(ty);
+                // Initialize the type of the expression which the `let` is set to
                 let expr_ty = self.typecheck_expr(value);
+                // We now need to union these types
                 self.union_ty(let_ty, expr_ty, pos);
+                // And then declare it as a usable variable
                 *var_id = self.declare_variable(var_name, let_ty, pos);
             }
             &mut AstStatementData::If { ref mut condition, ref mut block, ref mut else_block } => {
                 let ty = self.typecheck_expr(condition);
-                self.union_ty(ty, TY_BOOLEAN, pos); //TODO: more expressive error?
+                // We know it must ALWAYS be a boolean
+                self.union_ty(ty, TY_BOOLEAN, pos);
                 self.analyze_block(block);
                 self.analyze_block(else_block);
             }
@@ -172,24 +177,28 @@ impl<'a> Analyzer<'a> {
                 // TODO: make sure break and continue exist only in whiles!!!!
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos);
+                // Store the old "breakable" condition while we analyze the block
                 let old_breakable = self.breakable;
                 self.breakable = true;
                 self.analyze_block(block);
                 self.breakable = old_breakable;
+                // and restore it when we're done
             }
             &mut AstStatementData::Break |
             &mut AstStatementData::Continue => {
                 if !self.breakable {
-                    self.report_analyze_err_at(expr.pos, format!("Cannot `break` or `continue` outside of a `while`"))
+                    self.report_analyze_err_at(stmt.pos, format!("Cannot `break` or `continue` outside of a `while`"))
                 }
             }
             &mut AstStatementData::NoOp => {}
             &mut AstStatementData::Return { ref mut value } => {
+                // Simple: union expected return type and actual type of value being returned
                 let ty = self.typecheck_expr(value);
                 let return_ty = self.get_return_type();
                 self.union_ty(ty, return_ty, pos);
             }
             &mut AstStatementData::Assert { ref mut condition } => {
+                // Union condition with BOOLEAN
                 let ty = self.typecheck_expr(condition);
                 self.union_ty(ty, TY_BOOLEAN, pos);
             }
@@ -208,6 +217,7 @@ impl<'a> Analyzer<'a> {
             &mut AstExpressionData::False => TY_BOOLEAN,
             &mut AstExpressionData::Null => self.new_null_infer_ty(),
             &mut AstExpressionData::String { ref string, ref mut id, .. } => {
+                // Save string in map, first
                 *id = self.str_new_id;
                 self.str_new_id += 1;
                 self.strings.insert(*id, string.clone());
@@ -218,47 +228,44 @@ impl<'a> Analyzer<'a> {
             &mut AstExpressionData::Float(_) => TY_FLOAT,
             &mut AstExpressionData::Char(_) => TY_CHAR,
             &mut AstExpressionData::Identifier { ref name, ref mut var_id } => {
+                // Get variable, failing if the variable doesn't exist!
                 *var_id = self.get_variable_id(name, pos);
                 self.get_variable_type(*var_id)
             }
             &mut AstExpressionData::Tuple { ref mut values } => {
-                let mut tys = Vec::new();
-                for ref mut value in values {
-                    tys.push(self.typecheck_expr(value));
-                }
+                let tys: Vec<_> = values.iter_mut().map(|v| self.typecheck_expr(v)).collect();
                 self.make_tuple_ty(tys)
             }
             &mut AstExpressionData::Array { ref mut elements } => {
-                let ty = self.new_infer_ty();
+                let ty = self.new_infer_ty(); // We start out as an [_] array...
                 for ref mut element in elements {
                     let elt_ty = self.typecheck_expr(element);
+                    // We need to union the array's inner type with each element
+                    // since each element must essentially be the same type
+                    // (union operator is transitive...)
                     self.union_ty(ty, elt_ty, element.pos);
                 }
                 self.make_array_ty(ty)
             }
             &mut AstExpressionData::Call { ref mut name, ref mut args } => {
-                let mut arg_tys = Vec::new();
-                for ref mut arg in args {
-                    arg_tys.push(self.typecheck_expr(arg));
-                }
-
+                let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
                 let fn_sig = self.get_function_signature(name);
-
                 self.typecheck_function_call(fn_sig, arg_tys, pos)
             }
             &mut AstExpressionData::Access { ref mut accessible, ref mut idx } => {
                 let idx_ty = self.typecheck_expr(idx);
-                self.union_ty(idx_ty, TY_UINT, idx.pos);
+                self.union_ty(idx_ty, TY_UINT, idx.pos); // The index should be uint
                 let array_ty = self.typecheck_expr(accessible);
-                self.extract_array_element_ty(array_ty, accessible.pos)
+                // We "extract" the inner type T out of the array type [T].
+                self.extract_array_inner_ty(array_ty, accessible.pos)
             }
             &mut AstExpressionData::TupleAccess { ref mut accessible, idx } => {
                 let tuple_ty = self.typecheck_expr(accessible);
-                self.extract_tuple_element_ty(tuple_ty, idx, accessible.pos)
+                self.extract_tuple_inner_ty(tuple_ty, idx, accessible.pos)
             }
             &mut AstExpressionData::Not(ref mut expr) => {
                 let ty = self.typecheck_expr(expr);
-                if (self.is_numeric_ty(ty) && !self.is_float_ty(ty)) || self.is_boolean_ty(ty) {
+                if self.is_integral_ty(ty) || self.is_boolean_ty(ty) {
                     ty
                 } else {
                     self.report_analyze_err_at(expr.pos,
@@ -289,7 +296,7 @@ impl<'a> Analyzer<'a> {
                         lhs_ty
                     }
                     BinOpKind::ShiftLeft | BinOpKind::ShiftRight => {
-                        if !self.is_numeric_ty(lhs_ty) || self.is_float_ty(lhs_ty) {
+                        if !self.is_integral_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
                                                        format!("Expected integer sub-expression"));
                         }
@@ -321,6 +328,8 @@ impl<'a> Analyzer<'a> {
         *ty
     }
 
+    /// Typechecks an argument type array against a function signature,
+    /// and returns the function's return type.
     fn typecheck_function_call(&mut self, fn_sig: FnSignature, args: Vec<Ty>, pos: usize) -> Ty {
         if fn_sig.params.len() != args.len() {
             self.report_analyze_err_at(pos,
@@ -337,14 +346,18 @@ impl<'a> Analyzer<'a> {
         fn_sig.return_ty
     }
 
+    /// Raises the variable scope up one level.
+    /// (i.e. enter a block or other context where variables are unique)
     fn raise(&mut self) {
         self.var_ids.push(HashMap::new());
     }
 
+    /// Lower the variable scope one level.
     fn fall(&mut self) {
         self.var_ids.pop();
     }
 
+    /// Declare a variable with a specific type in the variable scope, assigning to it a unique VarId
     fn declare_variable(&mut self, name: &String, ty: Ty, pos: usize) -> VarId {
         let id = self.var_new_id;
         self.var_new_id += 1;
@@ -362,6 +375,7 @@ impl<'a> Analyzer<'a> {
         id
     }
 
+    /// Get the VarId associated with a name in the highest scope (due to variable shadowing)
     fn get_variable_id(&mut self, name: &String, pos: usize) -> VarId {
         for scope in self.var_ids.iter().rev() {
             if scope.contains_key(name) {
@@ -373,22 +387,27 @@ impl<'a> Analyzer<'a> {
                                    format!("Variable with name `{}` not declared in scope", name));
     }
 
+    /// Get the Ty associated with a VarId
     fn get_variable_type(&mut self, var_id: VarId) -> Ty {
         self.var_tys[&var_id]
     }
 
+    /// Get a function signature
     fn get_function_signature(&mut self, name: &String) -> FnSignature {
         self.fn_signatures.get_mut(name).unwrap().clone() //TODO: add error panic!("")
     }
 
+    /// Set expected return type
     fn set_return_type(&mut self, return_ty: Ty) {
         self.return_ty = return_ty;
     }
 
+    /// Get expected return type
     fn get_return_type(&self) -> Ty {
         self.return_ty
     }
 
+    /// Convert an AstType from parsing into a Ty id for use in Analyzer
     fn initialize_ty(&mut self, ast_ty: &AstType) -> Ty {
         let ty_id = self.ty_new_id;
         self.ty_new_id += 1;
@@ -416,10 +435,13 @@ impl<'a> Analyzer<'a> {
         ty_id
     }
 
+    /// Make a new Ty associated (initially) with the `_` Infer type.
     fn new_infer_ty(&mut self) -> Ty {
         self.initialize_ty(&mut AstType::Infer)
     }
 
+    /// Make a new Ty associated with the "NullInfer" type.
+    /// The NullInfer type can be unioned with any type that is nullable (array, string).
     fn new_null_infer_ty(&mut self) -> Ty {
         let ty_id = self.ty_new_id;
         self.ty_new_id += 1;
@@ -428,6 +450,7 @@ impl<'a> Analyzer<'a> {
         ty_id
     }
 
+    /// Make a new Ty representing a tuple containing all of the passed Tys
     fn make_tuple_ty(&mut self, tys: Vec<Ty>) -> Ty {
         let ty_id = self.ty_new_id;
         self.ty_new_id += 1;
@@ -436,6 +459,7 @@ impl<'a> Analyzer<'a> {
         ty_id
     }
 
+    /// Make an array Ty with the inner type given by inner_ty
     fn make_array_ty(&mut self, inner_ty: Ty) -> Ty {
         let ty_id = self.ty_new_id;
         self.ty_new_id += 1;
@@ -444,44 +468,55 @@ impl<'a> Analyzer<'a> {
         ty_id
     }
 
+    /** Union two types
+      *
+      * Unioning two types ensures that they're "essentially" the same type after union.
+      * Usually this means setting Infers to agree with the other type, or making sure
+      * that two definite types are identical.
+      */
     fn union_ty(&mut self, ty1: Ty, ty2: Ty, pos: usize) {
         if ty1 == ty2 {
             return;
         }
 
+        // If ty1 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
             self.union_ty(ty1_same, ty2, pos);
             return;
         }
 
+        // If ty2 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty2_same) = self.ty_map[&ty2] {
             self.union_ty(ty1, ty2_same, pos);
             return;
         }
 
         match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) {
+            // Infer can union with any type, and make it into a Same
             (AnalyzeType::Infer, _) => {
                 self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
             }
-            (_, AnalyzeType::NullInfer) => {
+            (_, AnalyzeType::Infer) => {
                 self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
             }
+            // NullInfer can union with any *nullable* type
             (AnalyzeType::NullInfer, t) => {
                 if !self.is_nullable(t) {
                     self.report_analyze_err_at(pos,
-                                               format!("Null can only be assigned to types \
+                                               format!("`null` may only be assigned to types \
                                                         which are nullable."));
                 }
                 self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
             }
-            (t, AnalyzeType::Infer) => {
+            (t, AnalyzeType::NullInfer) => {
                 if !self.is_nullable(t) {
                     self.report_analyze_err_at(pos,
-                                               format!("Null can only be assigned to types \
+                                               format!("`null` may only be assigned to types \
                                                         which are nullable."));
                 }
                 self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
             }
+            // Duplicates can union without action...
             (AnalyzeType::Nothing, AnalyzeType::Nothing) |
             (AnalyzeType::Boolean, AnalyzeType::Boolean) |
             (AnalyzeType::Int, AnalyzeType::Int) |
@@ -491,6 +526,7 @@ impl<'a> Analyzer<'a> {
             (AnalyzeType::String, AnalyzeType::String) => {
                 // Do nothing.
             }
+            // Tuples union if they're the same length and the sub-types union as well.
             (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
                 if ty1_tys.len() != ty2_tys.len() {
                     self.report_analyze_err_at(pos,
@@ -501,13 +537,16 @@ impl<'a> Analyzer<'a> {
                     self.union_ty(ty1_tys[i], ty2_tys[i], pos);
                 }
             }
+            // Arrays union if their inner types union as well
             (AnalyzeType::Array(inner_ty1), AnalyzeType::Array(inner_ty2)) => {
                 self.union_ty(inner_ty1, inner_ty2, pos);
             }
+            // Otherwise, welp!
             _ => self.report_analyze_err_at(pos, format!("Cannot consolidate types")),
         }
     }
 
+    // Return true if type can be assigned null (currently String and arrays)
     fn is_nullable(&self, ty: AnalyzeType) -> bool {
         match ty {
             AnalyzeType::String |
@@ -516,17 +555,19 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    fn extract_array_element_ty(&self, array_ty: Ty, pos: usize) -> Ty {
+    // Extract the type that the array stores
+    fn extract_array_inner_ty(&self, array_ty: Ty, pos: usize) -> Ty {
         match self.ty_map[&array_ty] {
-            AnalyzeType::Same(same_ty) => self.extract_array_element_ty(same_ty, pos),
+            AnalyzeType::Same(same_ty) => self.extract_array_inner_ty(same_ty, pos),
             AnalyzeType::Array(inner_ty) => inner_ty,
             _ => self.report_analyze_err_at(pos, format!("Cannot extract array type")),
         }
     }
 
-    fn extract_tuple_element_ty(&self, tuple_ty: Ty, idx: u32, pos: usize) -> Ty {
+    // Extract the tuple's member type at idx, or panic if out of bounds
+    fn extract_tuple_inner_ty(&self, tuple_ty: Ty, idx: u32, pos: usize) -> Ty {
         match self.ty_map[&tuple_ty] {
-            AnalyzeType::Same(same_ty) => self.extract_tuple_element_ty(same_ty, idx, pos),
+            AnalyzeType::Same(same_ty) => self.extract_tuple_inner_ty(same_ty, idx, pos),
             AnalyzeType::Tuple(ref tys) => {
                 if tys.len() <= (idx as usize) {
                     self.report_analyze_err_at(pos, format!("Tuple access out of bounds"))
@@ -550,6 +591,15 @@ impl<'a> Analyzer<'a> {
         match self.ty_map[&ty] {
             AnalyzeType::Same(same_ty) => self.is_float_ty(same_ty),
             AnalyzeType::Float => true,
+            _ => false,
+        }
+    }
+
+    fn is_integral_ty(&self, ty: Ty) -> bool {
+        match self.ty_map[&ty] {
+            AnalyzeType::Same(same_ty) => self.is_integral_ty(same_ty),
+            AnalyzeType::Int => true,
+            AnalyzeType::UInt => true,
             _ => false,
         }
     }

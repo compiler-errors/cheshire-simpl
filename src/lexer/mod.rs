@@ -281,6 +281,7 @@ impl<'a> Lexer<'a> {
         return Ok(Token::CharLiteral(c));
     }
 
+    /// Scans a numeric literal, consuming it and converting it to a token in the process.
     fn scan_numeric_literal(&mut self) -> Result<Token, String> {
         let mut string = "".to_string();
 
@@ -288,8 +289,6 @@ impl<'a> Lexer<'a> {
             string.push(self.current_char());
             self.bump(1);
         }
-
-        // let has_decimal;
 
         if self.current_char() == '.' && is_numeric(self.next_char()) {
             string += ".";
@@ -317,6 +316,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    // Scans an identifier, unless it matches a keyword.
     fn scan_identifier_or_keyword(&mut self) -> Result<Token, String> {
         let mut string = "".to_string();
 
@@ -328,7 +328,7 @@ impl<'a> Lexer<'a> {
             self.bump(1);
         }
 
-        Ok(match &*string {
+        Ok(match string.as_ref() {
             "fn" => Token::Fn,
             "let" => Token::Let,
             "if" => Token::If,

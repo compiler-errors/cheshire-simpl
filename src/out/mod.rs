@@ -148,7 +148,7 @@ impl Out {
 
                     println!("br{}:", test_blk);
                     let cond_ref = self.output_expression(condition);
-                    println!("br i1 %expr{}, label %br{}, label %br{}",
+                    println!("br i1 {}, label %br{}, label %br{}",
                              cond_ref,
                              true_blk,
                              end_blk);
@@ -163,12 +163,12 @@ impl Out {
                 }
                 &AstStatementData::Break => {
                     let break_block = cont_brk.unwrap().1;
-                    println!("br label %br{}", break_block);
+                    println!("br label %br{} ; break", break_block);
                     return true;
                 }
                 &AstStatementData::Continue => {
-                    let continue_block = cont_brk.unwrap().0;
-                    println!("br label %br{}", continue_block);
+                    let continue_block = cont_brk.unwrap().0; //TODO: prettier
+                    println!("br label %br{} ; continue", continue_block);
                     return true;
                 }
                 &AstStatementData::Return { ref value } => {
@@ -196,7 +196,14 @@ impl Out {
             &AstExpressionData::Nothing => ExprRef::Constant("undef".to_string()),
             &AstExpressionData::True => ExprRef::Constant("true".to_string()),
             &AstExpressionData::False => ExprRef::Constant("false".to_string()),
-            &AstExpressionData::Null => ExprRef::Constant("null".to_string()),
+            &AstExpressionData::Null => {
+                if self.is_array_ty(expr.ty) {
+                    let inner_ty_str = self.array_ty_str(expr.ty);
+                    ExprRef::Constant(format!("{{i64 0, {}* null}}", inner_ty_str))
+                } else {
+                    ExprRef::Constant("null".to_string())
+                }
+            }
             &AstExpressionData::String { id, .. } => ExprRef::Constant(format!("@str{}", id)),
             &AstExpressionData::Int(ref s) => ExprRef::Constant(s.clone()),
             // TODO: check constant right size...
@@ -246,7 +253,7 @@ impl Out {
                 let return_id = self.expr_new_id + 4; // The {i64, T*} value of the finished array
                 self.expr_new_id += 5;
 
-                let inner_ty_str = self.array_ty_string(expr.ty);
+                let inner_ty_str = self.array_ty_str(expr.ty);
                 println!("%expr{} = getelementptr {}, {}* null, i64 1",
                          sizeptr_id,
                          inner_ty_str,
@@ -529,9 +536,17 @@ impl Out {
         }
     }
 
-    fn array_ty_string(&self, array_ty: Ty) -> String {
+    fn is_array_ty(&self, ty: Ty) -> bool {
+        match &self.ty_map[&ty] {
+            &AnalyzeType::Same(ty_same) => self.is_array_ty(ty_same),
+            &AnalyzeType::Array(_) => true,
+            _ => false
+        }
+    }
+
+    fn array_ty_str(&self, array_ty: Ty) -> String {
         match &self.ty_map[&array_ty] {
-            &AnalyzeType::Same(array_ty_same) => self.array_ty_string(array_ty_same),
+            &AnalyzeType::Same(array_ty_same) => self.array_ty_str(array_ty_same),
             &AnalyzeType::Array(inner_ty) => self.ty_str(inner_ty),
             _ => unreachable!(),
         }
