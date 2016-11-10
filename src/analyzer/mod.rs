@@ -249,7 +249,7 @@ impl<'a> Analyzer<'a> {
             }
             &mut AstExpressionData::Call { ref mut name, ref mut args } => {
                 let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
-                let fn_sig = self.get_function_signature(name);
+                let fn_sig = self.get_function_signature(name, expression.pos);
                 self.typecheck_function_call(fn_sig, arg_tys, pos)
             }
             &mut AstExpressionData::Access { ref mut accessible, ref mut idx } => {
@@ -393,8 +393,12 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Get a function signature
-    fn get_function_signature(&mut self, name: &String) -> FnSignature {
-        self.fn_signatures.get_mut(name).unwrap().clone() //TODO: add error panic!("")
+    fn get_function_signature(&mut self, name: &String, pos: usize) -> FnSignature {
+        if !self.fn_signatures.contains_key(name) {
+            self.report_analyze_err_at(pos, format!("Function with name `{}` not declared", name));
+        }
+
+        self.fn_signatures.get(name).unwrap().clone() //TODO: add error panic!("")
     }
 
     /// Set expected return type
