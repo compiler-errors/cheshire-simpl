@@ -8,6 +8,7 @@ mod parser;
 mod lexer;
 mod util;
 mod out;
+mod test;
 
 use analyzer::*;
 use parser::Parser;
@@ -21,10 +22,10 @@ fn main() {
         if let Ok(file) = File::open(path) {
             parse_file(file);
         } else {
-            println!("Couldn't open file \"{}\"!", pathstr);
+            panic!("Couldn't open file \"{}\"!", pathstr);
         }
     } else {
-        println!("Please provide a file argument to test the parser on.");
+        panic!("Please provide a file argument to test the parser on.");
     }
 }
 
@@ -38,7 +39,6 @@ fn parse_file(mut file: File) {
     let mut analyze = Analyzer::new();
 
     let parsed_file = parse.parse_file();
-    print!("{:#?}", parsed_file);
     analyze.analyze_file(parsed_file);
 
     Out::out(analyze);

@@ -179,7 +179,7 @@ impl Out {
                 }
                 &AstStatementData::Assert { ref condition } => {
                     let cond_ref = self.output_expression(condition);
-                    println!("call void @cheshire.assert(i1 {})", cond_ref);
+                    println!("call void @_cheshire_assert(i1 {})", cond_ref);
                 }
                 &AstStatementData::Expression { ref expression } => {
                     self.output_expression(expression);
@@ -262,7 +262,7 @@ impl Out {
                          size_id,
                          inner_ty_str,
                          sizeptr_id); //TODO: maybe i64 for size?
-                println!("%expr{} = call i8* @cheshire.malloc_array(i64 %expr{}, i64 {})",
+                println!("%expr{} = call i8* @_cheshire_malloc_array(i64 %expr{}, i64 {})",
                          arri8_id,
                          size_id,
                          elements.len());

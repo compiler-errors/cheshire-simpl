@@ -2,6 +2,8 @@ use util::FileReader;
 use analyzer::{Ty, TY_NOTHING, VarId, StringId};
 
 #[derive(Debug)]
+/// A file that is being parsed, along with the associated
+/// parsed functions that are contained in the file.
 pub struct ParseFile<'a> {
     pub file: FileReader<'a>,
     pub functions: Vec<AstFunction>,
@@ -17,13 +19,23 @@ impl<'a> ParseFile<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// A parsed function
+/// The variables associated with the function are given by
+/// [beginning_of_vars, end_of_vars).
 pub struct AstFunction {
+    /// The beginning position of the function
     pub pos: usize,
+    /// The simple name of the function
     pub name: String,
+    /// The parameter list that the function receives
     pub parameter_list: Vec<AstFnParameter>,
+    /// The return type of the function, or AstType::None
     pub return_type: AstType,
+    /// The collection of statements associated with the function
     pub definition: AstBlock,
+    /// The first variable ID associated with the function
     pub beginning_of_vars: VarId,
+    /// The last variable ID associated with the function
     pub end_of_vars: VarId,
 }
 
@@ -47,6 +59,8 @@ impl AstFunction {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// A name and type associated with a parameter, along
+/// with the position where this parameter is named.
 pub struct AstFnParameter {
     pub name: String,
     pub ty: AstType,
@@ -64,6 +78,7 @@ impl AstFnParameter {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// A type as parsed by the Parser module.
 pub enum AstType {
     Infer,
     None,
@@ -88,6 +103,7 @@ impl AstType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// A collection of statements, given by a `{}` block.
 pub struct AstBlock {
     pub statements: Vec<AstStatement>,
 }
@@ -104,7 +120,9 @@ impl AstBlock {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AstStatement {
+    /// The actual Statement enum
     pub stmt: AstStatementData,
+    /// The position of the statement
     pub pos: usize,
 }
 
@@ -270,14 +288,17 @@ pub enum AstExpressionData {
     Tuple { values: Vec<AstExpression> },
     Array { elements: Vec<AstExpression> },
 
+    /// A regular function call
     Call {
         name: String,
         args: Vec<AstExpression>,
     },
+    /// An array access `a[1u]`
     Access {
         accessible: Box<AstExpression>,
         idx: Box<AstExpression>,
     },
+    /// A tuple access `a:1`
     TupleAccess {
         accessible: Box<AstExpression>,
         idx: u32
@@ -294,6 +315,7 @@ pub enum AstExpressionData {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The kind of binary operation
 pub enum BinOpKind {
     Multiply,
     Divide,

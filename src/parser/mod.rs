@@ -9,6 +9,7 @@ pub use self::ast::*;
 type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Debug)]
+/// An error with a location, error string, and possible comments
 pub struct ParseError {
     pub loc: usize,
     pub error: String,
@@ -44,21 +45,24 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Report an error at the current position
     fn error<T>(&self, s: String) -> ParseResult<T> {
         Err(ParseError::new(self.pos, s))
     }
 
+    /// Report an error at another position
     fn error_at<T>(&self, loc: usize, s: String) -> ParseResult<T> {
         Err(ParseError::new(loc, s))
     }
 
+    /// Move the parser forward one token
     fn bump(&mut self) {
         self.lexer.bump_token();
         self.pos = self.lexer.peek_token_pos();
         self.next_token = self.lexer.peek_token();
     }
 
-    /// Expect a token but don't consume it, otherwise signal an error
+    /// Check for a token but don't consume it, otherwise signal an error
     fn expect(&self, token: Token) -> ParseResult<()> {
         let err_tok = format!("{}", token);
         if self.check(token) {
@@ -68,17 +72,19 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Expect a token and consume it, otherwise signal an error
+    /// Check for a token and consume it, otherwise signal an error
     fn expect_consume(&mut self, token: Token) -> ParseResult<()> {
         self.expect(token)?;
         self.bump();
         Ok(())
     }
 
+    /// Test for a token, not consuming and return the status as a boolean
     fn check(&self, token: Token) -> bool {
         return token == self.next_token;
     }
 
+    /// Test and consume a token (if it matches), returning the status as a boolean.
     fn check_consume(&mut self, token: Token) -> bool {
         let x = self.check(token);
         if x {
@@ -87,6 +93,7 @@ impl<'a> Parser<'a> {
         x
     }
 
+    /// `check_consume` but for an Identifier token.
     fn expect_get_identifier(&mut self) -> ParseResult<String> {
         let tok = self.next_token.clone();
         if let Token::Identifier(ident) = tok {
@@ -97,6 +104,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `check_consume` but for a Number token.
     fn expect_get_number(&mut self) -> ParseResult<u32> {
         let tok = self.next_token.clone();
         if let Token::IntLiteral(num) = tok {
@@ -107,6 +115,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse a top level file.
     pub fn parse_file(mut self) -> ParseFile<'a> {
         self.expect_consume(Token::BOF).unwrap();
 
@@ -124,6 +133,7 @@ impl<'a> Parser<'a> {
         ParseFile::new(self.lexer.file, functions)
     }
 
+    /// Parse a single function from the file.
     fn parse_function(&mut self) -> ParseResult<AstFunction> {
         self.expect_consume(Token::Fn)?;
         let pos = self.pos;
@@ -135,20 +145,24 @@ impl<'a> Parser<'a> {
         Ok(AstFunction::new(pos, fn_name, parameter_list, return_type, definition))
     }
 
+    /// Parse a parameter list (including LParen and RParen) following a function.
     fn parse_fn_parameter_list(&mut self) -> ParseResult<Vec<AstFnParameter>> {
         self.expect_consume(Token::LParen)?;
         let mut parameters = Vec::new();
 
         while !self.check_consume(Token::RParen) {
             if parameters.len() != 0 {
+                // If it's not the first, then we need a comma
                 self.expect_consume(Token::Comma)?;
             }
 
+            // name colon type
             let param_pos = self.pos;
             let param_name = self.expect_get_identifier()?;
             self.expect_consume(Token::Colon)?;
             let type_pos = self.pos;
             let param_type = self.parse_type()?;
+            // Array parameter types can't have infer(s) in them
             self.ensure_not_infer(&param_type, type_pos)?;
             parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
         }
@@ -156,10 +170,14 @@ impl<'a> Parser<'a> {
         Ok(parameters)
     }
 
+    /// Parse a function return type (including RArrow) or return AstType::None
+    /// If it is not present.
     fn try_parse_return_type(&mut self) -> ParseResult<AstType> {
+        // We first check for a `->`
         if self.check_consume(Token::RArrow) {
             let type_pos = self.pos;
             let ret = self.parse_type()?;
+            // Also make the return type is not a `_`
             self.ensure_not_infer(&ret, type_pos)?;
             Ok(ret)
         } else {
@@ -167,12 +185,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Try to parse an AstType.
     fn parse_type(&mut self) -> ParseResult<AstType> {
         if let Some(ty) = self.try_parse_builtin_type() {
             Ok(ty)
         } else if self.check(Token::LSqBracket) {
+            // [T]
             self.parse_array_type()
         } else if self.check(Token::LParen) {
+            // (A, B, C)
             self.parse_tuple_type()
         } else {
             self.error(format!("Expected `identifier`, `<` or `(`, found `{}`",
@@ -192,7 +213,8 @@ impl<'a> Parser<'a> {
             _ => None,
         };
 
-        if let Some(_) = ty {
+        if ty.is_some() {
+            /// If we got something, then consume it
             self.bump();
         }
 
@@ -217,6 +239,8 @@ impl<'a> Parser<'a> {
             while !self.check_consume(Token::RParen) {
                 if types.len() != 0 {
                     self.expect_consume(Token::Comma)?;
+
+                    // Tuples of len 1 are like `(T,)`
                     if types.len() == 1 && self.check_consume(Token::RParen) {
                         break;
                     }
@@ -224,8 +248,8 @@ impl<'a> Parser<'a> {
 
                 types.push(self.parse_type()?);
 
+                // We don't want `(T)`, so we expect a comma if we have only one type.
                 if types.len() == 1 {
-                    // TODO: Do we want to have parenthesized types?
                     self.expect(Token::Comma)?;
                 }
             }
@@ -234,6 +258,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Parse a block of statements including LBrace and RBrace.
     fn parse_block(&mut self) -> ParseResult<AstBlock> {
         self.expect_consume(Token::LBrace)?;
         let mut statements = Vec::new();
@@ -245,6 +270,7 @@ impl<'a> Parser<'a> {
         Ok(AstBlock::new(statements))
     }
 
+    /// Parse a statement.
     fn parse_statement(&mut self) -> ParseResult<AstStatement> {
         let pos = self.pos;
         match &self.next_token {
