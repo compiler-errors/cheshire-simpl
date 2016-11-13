@@ -1,5 +1,5 @@
 use util::FileReader;
-use analyzer::{Ty, TY_NOTHING, VarId, StringId};
+use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId};
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
@@ -524,6 +524,8 @@ pub struct AstObject {
     pub pos: usize,
     /// The object name
     pub name: String,
+    /// The Id associated with the object in Analysis
+    pub obj_id: ObjId,
     /// The functions (both static and member) of the object
     pub functions: Vec<AstObjectFunction>,
     /// The members that are contained in the object
@@ -538,6 +540,7 @@ impl AstObject {
         AstObject {
             pos: pos,
             name: name,
+            obj_id: 0,
             functions: functions,
             members: members
         }
@@ -587,15 +590,17 @@ impl AstObjectFunction {
 #[derive(Debug, PartialEq, Eq)]
 pub struct AstObjectMember {
     pub name: String,
-    pub ty: AstType,
+    pub ast_ty: AstType,
+    pub ty: Ty,
     pub pos: usize,
 }
 
 impl AstObjectMember {
-    pub fn new(name: String, ty: AstType, pos: usize) -> AstObjectMember {
+    pub fn new(name: String, ast_ty: AstType, pos: usize) -> AstObjectMember {
         AstObjectMember {
             name: name,
-            ty: ty,
+            ast_ty: ast_ty,
+            ty: 0,
             pos: pos,
         }
     }

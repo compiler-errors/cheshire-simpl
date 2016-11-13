@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 pub type VarId = u32;
 pub type StringId = u32;
+pub type ObjId = u32;
 pub type Ty = u32;
 
 pub const TY_NOTHING: Ty = 1;
@@ -13,6 +16,7 @@ pub const TY_STRING: Ty = 7;
 pub const TY_FIRST_NEW_ID: Ty = 8;
 pub const VAR_FIRST_NEW_ID: VarId = 1;
 pub const STR_FIRST_NEW_ID: StringId = 1;
+pub const OBJ_FIRST_NEW_ID: ObjId = 1;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 /** AnalyzeType is the type used by the Analyzer module.
@@ -53,6 +57,24 @@ impl FnSignature {
         FnSignature {
             params: params,
             return_ty: return_ty,
+        }
+    }
+}
+
+pub struct AnalyzeObject {
+    member_tys: HashMap<String, Ty>,
+    member_functions: HashMap<String, FnSignature>,
+    static_functions: HashMap<String, FnSignature>
+}
+
+impl AnalyzeObject {
+    pub fn new(member_tys: HashMap<String, Ty>,
+           member_functions: HashMap<String, FnSignature>,
+           static_functions: HashMap<String, FnSignature>) -> AnalyzeObject {
+        AnalyzeObject {
+            member_tys: member_tys,
+            member_functions: member_functions,
+            static_functions: static_functions
         }
     }
 }

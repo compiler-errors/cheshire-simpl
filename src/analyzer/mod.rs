@@ -18,10 +18,16 @@ pub struct Analyzer<'a> {
     /// Map which associates a function name to a signature
     pub fn_signatures: HashMap<String, FnSignature>,
     /// Map which associates a function name to its definition (block)
-    pub fns: HashMap<String, AstFunction>,
+    pub fns: HashMap<String, AstFunction>, //TODO: probably just store the block itself...
 
     /// Keep track of being inside a "breakable" block
     pub breakable: bool,
+
+    // Keep track of object information
+    /// Associates an object name to a unique ID
+    pub obj_skeletons: HashMap<String, AnalyzeObject>,
+    /// Associates an object ID to a parsed object
+    pub objs: HashMap<String, AstObject>,
 
     // Keep track of variable information
     /// "Scoped map" which associates a variable name to its VarId
@@ -69,8 +75,10 @@ impl<'a> Analyzer<'a> {
             var_tys: HashMap::new(),
             var_new_id: VAR_FIRST_NEW_ID,
             return_ty: 0,
-            str_new_id: STR_FIRST_NEW_ID,
+            obj_skeletons: HashMap::new(),
+            objs: HashMap::new(),
             strings: HashMap::new(),
+            str_new_id: STR_FIRST_NEW_ID,
             file: None,
             ty_map: ty_map,
             ty_new_id: TY_FIRST_NEW_ID,
@@ -81,17 +89,15 @@ impl<'a> Analyzer<'a> {
     pub fn analyze_file(&mut self, mut f: ParseFile<'a>) {
         let ParseFile {
             file,
-            objects,
+            mut objects,
             functions
         } = f;
 
         self.file = Some(file); //TODO: this is wonky, fix?
 
-        for obj in objects {
-            obj.obj_id = self.obj_new_id;
-            self.obj_new_id += 1;
-            self.obj_ids.insert(obj.name.clone(), obj.obj_id);
-            self.objs.insert(obj.obj_id, self.initialize_object(obj));
+        for obj in &objects {
+        let analyze_obj = self.initialize_object(obj);
+            self.obj_skeletons.insert(obj.name.clone(), analyze_obj);
         }
 
         for fun in &functions {
@@ -118,8 +124,9 @@ impl<'a> Analyzer<'a> {
             self.fns.insert(fun.name.clone(), fun);
         }
 
-        for ref mut obj in self.objects {
-            self.analyze_object(obj);
+        for mut obj in objects {
+            self.analyze_object(&mut obj);
+            self.objs.insert(obj.name.clone(), obj);
         }
     }
 
@@ -363,21 +370,21 @@ impl<'a> Analyzer<'a> {
         fn_sig.return_ty
     }
 
-    fn initialize_object(&mut self, obj: &mut AstObject) -> AnalyzeObject {
-        let member_tys = HashMap::new();
-        let member_signatures = HashMap::new();
-        let static_signatures = HashMap::new();
+    fn initialize_object(&mut self, obj: &AstObject) -> AnalyzeObject {
+        let mut member_tys = HashMap::new();
+        let mut member_signatures = HashMap::new();
+        let mut static_signatures = HashMap::new();
 
-        for ref mut AstObjectMember { ref name, ref ast_ty, ref mut ty, pos } in obj.members {
-            if member_tys.contains_key(name) {
-                //TODO: error!
+        for ref mem in &obj.members {
+            if member_tys.contains_key(&mem.name) {
+                self.report_analyze_err_at(mem.pos, format!("Duplicate member named `{}`", mem.name));
             }
 
-            *ty = self.initialize_ty(ast_ty);
-            member_tys.insert(name.clone(), *ty);
+            let mem_ty = self.initialize_ty(&mem.ast_ty);
+            member_tys.insert(mem.name.clone(), mem_ty);
         }
 
-        for ref mut fun in obj.functions {
+        for ref fun in &obj.functions {
             let arg_tys: Vec<_> = fun.parameter_list
                 .iter()
                 .map(|p| self.initialize_ty(&p.ty))
@@ -394,12 +401,9 @@ impl<'a> Analyzer<'a> {
         AnalyzeObject::new(member_tys, member_signatures, static_signatures)
     }
 
-    fn analyze_object(&mut self, ) ->  {
+    fn analyze_object(&mut self, obj: &mut AstObject) {
         //TODO: set self type
 
-        for ref mut fun in obj.functions {
-
-        }
     }
 
     /// Raises the variable scope up one level.
