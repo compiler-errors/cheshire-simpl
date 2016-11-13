@@ -79,9 +79,22 @@ impl<'a> Analyzer<'a> {
 
     /// Analyze a file
     pub fn analyze_file(&mut self, mut f: ParseFile<'a>) {
-        self.file = Some(f.file); //TODO: this is wonky, fix?
+        let ParseFile {
+            file,
+            objects,
+            functions
+        } = f;
 
-        for fun in &f.functions {
+        self.file = Some(file); //TODO: this is wonky, fix?
+
+        for obj in objects {
+            obj.obj_id = self.obj_new_id;
+            self.obj_new_id += 1;
+            self.obj_ids.insert(obj.name.clone(), obj.obj_id);
+            self.objs.insert(obj.obj_id, self.initialize_object(obj));
+        }
+
+        for fun in &functions {
             if self.fn_signatures.contains_key(&fun.name) {
                 self.report_analyze_err_at(fun.pos,
                                            format!("Duplicate function name `{}`", fun.name));
@@ -98,11 +111,15 @@ impl<'a> Analyzer<'a> {
         }
 
         // Let's use a drain so we can take ownership of the function
-        for mut fun in f.functions.drain(..) {
+        for mut fun in functions {
             // First analyze the function
             self.analyze_function(&mut fun);
             // And then store it so we can emit it later
             self.fns.insert(fun.name.clone(), fun);
+        }
+
+        for ref mut obj in self.objects {
+            self.analyze_object(obj);
         }
     }
 
@@ -344,6 +361,45 @@ impl<'a> Analyzer<'a> {
         }
 
         fn_sig.return_ty
+    }
+
+    fn initialize_object(&mut self, obj: &mut AstObject) -> AnalyzeObject {
+        let member_tys = HashMap::new();
+        let member_signatures = HashMap::new();
+        let static_signatures = HashMap::new();
+
+        for ref mut AstObjectMember { ref name, ref ast_ty, ref mut ty, pos } in obj.members {
+            if member_tys.contains_key(name) {
+                //TODO: error!
+            }
+
+            *ty = self.initialize_ty(ast_ty);
+            member_tys.insert(name.clone(), *ty);
+        }
+
+        for ref mut fun in obj.functions {
+            let arg_tys: Vec<_> = fun.parameter_list
+                .iter()
+                .map(|p| self.initialize_ty(&p.ty))
+                .collect();
+            let return_ty = self.initialize_ty(&fun.return_type);
+
+            if fun.has_self {
+                member_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
+            } else {
+                static_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
+            }
+        }
+
+        AnalyzeObject::new(member_tys, member_signatures, static_signatures)
+    }
+
+    fn analyze_object(&mut self, ) ->  {
+        //TODO: set self type
+
+        for ref mut fun in obj.functions {
+
+        }
     }
 
     /// Raises the variable scope up one level.

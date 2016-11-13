@@ -342,13 +342,17 @@ impl<'a> Lexer<'a> {
             "false" => Token::False,
             "null" => Token::Null,
 
+            "object" => Token::Object,
+            "has" => Token::Has,
+            "self" => Token::SelfType,
+
             "Int" => Token::Int,
             "UInt" => Token::UInt,
             "Bool" => Token::Bool,
             "String" => Token::StringType,
             "Float" => Token::Float,
             "Char" => Token::Char,
-            "_" => Token::Infer,
+            "_ (Infer)" => Token::Infer,
 
             _ => Token::Identifier(string),
         })

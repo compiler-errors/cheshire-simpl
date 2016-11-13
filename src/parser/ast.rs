@@ -7,13 +7,17 @@ use analyzer::{Ty, TY_NOTHING, VarId, StringId};
 pub struct ParseFile<'a> {
     pub file: FileReader<'a>,
     pub functions: Vec<AstFunction>,
+    pub objects: Vec<AstObject>
 }
 
 impl<'a> ParseFile<'a> {
-    pub fn new(file: FileReader<'a>, functions: Vec<AstFunction>) -> ParseFile<'a> {
+    pub fn new(file: FileReader<'a>,
+               functions: Vec<AstFunction>,
+               objects: Vec<AstObject>) -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions,
+            objects: objects
         }
     }
 }
@@ -509,6 +513,89 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Null,
             ty: 0,
+            pos: pos,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObject {
+    /// The beginning position of the object
+    pub pos: usize,
+    /// The object name
+    pub name: String,
+    /// The functions (both static and member) of the object
+    pub functions: Vec<AstObjectFunction>,
+    /// The members that are contained in the object
+    pub members: Vec<AstObjectMember>
+}
+
+impl AstObject {
+    pub fn new(pos: usize,
+               name: String,
+               functions: Vec<AstObjectFunction>,
+               members: Vec<AstObjectMember>) -> AstObject {
+        AstObject {
+            pos: pos,
+            name: name,
+            functions: functions,
+            members: members
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObjectFunction {
+    /// The beginning position of the function
+    pub pos: usize,
+    /// The simple name of the function
+    pub name: String,
+    /// Whether the function is a member or static function of the type
+    pub has_self: bool,
+    /// The parameter list that the function receives
+    pub parameter_list: Vec<AstFnParameter>,
+    /// The return type of the function, or AstType::None
+    pub return_type: AstType,
+    /// The collection of statements associated with the function
+    pub definition: AstBlock,
+    /// The first variable ID associated with the function
+    pub beginning_of_vars: VarId,
+    /// The last variable ID associated with the function
+    pub end_of_vars: VarId,
+}
+
+impl AstObjectFunction {
+    pub fn new(pos: usize,
+           name: String,
+           has_self: bool,
+           parameter_list: Vec<AstFnParameter>,
+           return_type: AstType,
+           definition: AstBlock) -> AstObjectFunction {
+        AstObjectFunction {
+            pos: pos,
+            name: name,
+            has_self: has_self,
+            parameter_list: parameter_list,
+            return_type: return_type,
+            definition: definition,
+            beginning_of_vars: 0,
+            end_of_vars: 0,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObjectMember {
+    pub name: String,
+    pub ty: AstType,
+    pub pos: usize,
+}
+
+impl AstObjectMember {
+    pub fn new(name: String, ty: AstType, pos: usize) -> AstObjectMember {
+        AstObjectMember {
+            name: name,
+            ty: ty,
             pos: pos,
         }
     }

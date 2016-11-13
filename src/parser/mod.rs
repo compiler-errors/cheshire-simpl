@@ -120,17 +120,34 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::BOF).unwrap();
 
         let mut functions = Vec::new();
+        let mut objects = Vec::new();
+
         while !self.check_consume(Token::EOF) {
-            let fun_result = self.parse_function();
+            if self.check(Token::Fn) {
+                let fun_result = self.parse_function();
 
-            if let Err(e) = fun_result {
-                report_parse_err_at(&self.lexer.file, e);
+                if let Err(e) = fun_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                functions.push(fun_result.unwrap());
+            } else if self.check(Token::Object) {
+                let obj_result = self.parse_object();
+
+                if let Err(e) = obj_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                objects.push(obj_result.unwrap());
+            } else {
+                //TODO: wonky
+                let err = self.error::<()>(format!("Expected `fn` or `object`, found `{}`",
+                                     self.next_token)).unwrap_err();
+                report_parse_err_at(&self.lexer.file, err);
             }
-
-            functions.push(fun_result.unwrap());
         }
 
-        ParseFile::new(self.lexer.file, functions)
+        ParseFile::new(self.lexer.file, functions, objects)
     }
 
     /// Parse a single function from the file.
@@ -162,7 +179,7 @@ impl<'a> Parser<'a> {
             self.expect_consume(Token::Colon)?;
             let type_pos = self.pos;
             let param_type = self.parse_type()?;
-            // Array parameter types can't have infer(s) in them
+            // parameter types can't have infer(s) in them
             self.ensure_not_infer(&param_type, type_pos)?;
             parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
         }
@@ -656,6 +673,67 @@ impl<'a> Parser<'a> {
             &AstType::Infer => self.error_at(pos, format!("Infer `_` type not expected")),
             _ => Ok(()),
         }
+    }
+
+    fn parse_object(&mut self) -> ParseResult<AstObject> {
+        let pos = self.pos;
+        self.expect_consume(Token::Object)?;
+        let name = self.expect_get_identifier()?;
+        self.expect_consume(Token::LBrace)?;
+
+        let mut fns = Vec::new();
+        let mut members = Vec::new();
+        let mut expect_comma = false;
+
+        while !self.check_consume(Token::RBrace) {
+            if expect_comma {
+                self.expect_consume(Token::Comma)?;
+                expect_comma = false;
+            }
+
+            let mem_pos = self.pos;
+            let mem_name = self.expect_get_identifier()?;
+            self.expect_consume(Token::Colon);
+
+            if self.check(Token::Fn) {
+                fns.push(self.parse_object_function(mem_name)?);
+            } else {
+                let ty = self.parse_type()?;
+                members.push(AstObjectMember::new(mem_name, ty, mem_pos));
+                expect_comma = true;
+            }
+        }
+
+        Ok(AstObject::new(pos, name, fns, members))
+    }
+
+    fn parse_object_function(&mut self, name: String) -> ParseResult<AstObjectFunction> {
+        let pos = self.pos;
+        self.expect_consume(Token::LParen)?;
+        let has_self = self.check_consume(Token::SelfType);
+        let mut parameters = Vec::new();
+
+        while !self.check_consume(Token::RParen) {
+            if parameters.len() != 0 || has_self {
+                // If it's not the first, then we need a comma
+                self.expect_consume(Token::Comma)?;
+            }
+
+            // name colon type
+            let param_pos = self.pos;
+            let param_name = self.expect_get_identifier()?;
+            self.expect_consume(Token::Colon)?;
+            let type_pos = self.pos;
+            let param_type = self.parse_type()?;
+            // parameter types can't have infer(s) in them
+            self.ensure_not_infer(&param_type, type_pos)?;
+            parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
+        }
+
+        let return_type = self.try_parse_return_type()?;
+        let definition = self.parse_block()?;
+
+        Ok(AstObjectFunction::new(pos, name, has_self, parameters, return_type, definition))
     }
 }
 

@@ -47,6 +47,9 @@ pub enum Token {
     True,
     False,
     Null,
+    Object,
+    Has,
+    SelfType,
 
     /* Privileged Types */
     Int,
@@ -114,6 +117,9 @@ impl Display for Token {
             &Token::True => write!(f, "true"),
             &Token::False => write!(f, "false"),
             &Token::Null => write!(f, "null"),
+            &Token::Object => write!(f, "object"),
+            &Token::Has => write!(f, "has"),
+            &Token::SelfType => write!(f, "self"),
             &Token::Int => write!(f, "Type (Int)"),
             &Token::UInt => write!(f, "Type (UInt)"),
             &Token::Bool => write!(f, "Type (Bool)"),
