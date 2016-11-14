@@ -347,7 +347,10 @@ impl Out {
                 let element_id = self.expr_new_id;
                 self.expr_new_id += 1;
                 println!("%expr{} = extractvalue {} {}, {}",
-                         element_id, tuple_ty_str, tuple_ref, idx);
+                         element_id,
+                         tuple_ty_str,
+                         tuple_ref,
+                         idx);
                 ExprRef::ExprId(element_id)
             }
             &AstExpressionData::Not(ref expr) => {
@@ -380,7 +383,12 @@ impl Out {
                     let op_str = self.get_op_string(kind, lhs.ty);
                     let out_id = self.expr_new_id;
                     self.expr_new_id += 1;
-                    println!("%expr{} = {} {} {}, {}", out_id, op_str, op_ty, lhs_ref, rhs_ref);
+                    println!("%expr{} = {} {} {}, {}",
+                             out_id,
+                             op_str,
+                             op_ty,
+                             lhs_ref,
+                             rhs_ref);
                     ExprRef::ExprId(out_id)
                 }
             }
@@ -389,9 +397,7 @@ impl Out {
 
     fn output_expression_lval(&mut self, expr: &AstExpression) -> ExprRef {
         match &expr.expr {
-            &AstExpressionData::Identifier { var_id, .. } => {
-                ExprRef::VarId(var_id)
-            }
+            &AstExpressionData::Identifier { var_id, .. } => ExprRef::VarId(var_id),
             &AstExpressionData::Access { ref accessible, ref idx } => {
                 let accessible_ref = self.output_expression(accessible);
                 let idx_ref = self.output_expression(idx);
@@ -418,10 +424,14 @@ impl Out {
                 let element_id = self.expr_new_id;
                 self.expr_new_id += 1;
                 println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
-                         element_id, tuple_ty_str, tuple_ty_str, tuple_ref, idx);
+                         element_id,
+                         tuple_ty_str,
+                         tuple_ty_str,
+                         tuple_ref,
+                         idx);
                 ExprRef::ExprId(element_id)
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -444,7 +454,7 @@ impl Out {
                 BinOpKind::Xor => "xor",
                 BinOpKind::And => "and",
                 BinOpKind::Or => "or",
-                BinOpKind::Set => unreachable!()
+                BinOpKind::Set => unreachable!(),
             }
         } else if self.is_simple_ty(ty, AnalyzeType::UInt) {
             match kind {
@@ -464,7 +474,7 @@ impl Out {
                 BinOpKind::Xor => "xor",
                 BinOpKind::And => "and",
                 BinOpKind::Or => "or",
-                BinOpKind::Set => unreachable!()
+                BinOpKind::Set => unreachable!(),
             }
         } else if self.is_simple_ty(ty, AnalyzeType::Float) {
             match kind {
@@ -479,7 +489,7 @@ impl Out {
                 BinOpKind::LessEqual => "fcmp lte",
                 BinOpKind::EqualsEquals => "fcmp eq",
                 BinOpKind::NotEqual => "fcmp ne",
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         } else if self.is_simple_ty(ty, AnalyzeType::Boolean) {
             match kind {
@@ -488,7 +498,7 @@ impl Out {
                 BinOpKind::Xor => "xor",
                 BinOpKind::And => "and",
                 BinOpKind::Or => "or",
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         } else {
             unimplemented!() //TODO tuple eq, string eq, etc
@@ -532,7 +542,7 @@ impl Out {
     fn is_simple_ty(&self, ty: Ty, candidate: AnalyzeType) -> bool {
         match &self.ty_map[&ty] {
             &AnalyzeType::Same(ty_same) => self.is_simple_ty(ty_same, candidate),
-            a => (*a == candidate)
+            a => (*a == candidate),
         }
     }
 
@@ -540,7 +550,7 @@ impl Out {
         match &self.ty_map[&ty] {
             &AnalyzeType::Same(ty_same) => self.is_array_ty(ty_same),
             &AnalyzeType::Array(_) => true,
-            _ => false
+            _ => false,
         }
     }
 

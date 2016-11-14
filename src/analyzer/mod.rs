@@ -18,7 +18,7 @@ pub struct Analyzer<'a> {
     /// Map which associates a function name to a signature
     pub fn_signatures: HashMap<String, FnSignature>,
     /// Map which associates a function name to its definition (block)
-    pub fns: HashMap<String, AstFunction>, //TODO: probably just store the block itself...
+    pub fns: HashMap<String, AstFunction>, // TODO: probably just store the block itself...
 
     /// Keep track of being inside a "breakable" block
     pub breakable: bool,
@@ -87,16 +87,12 @@ impl<'a> Analyzer<'a> {
 
     /// Analyze a file
     pub fn analyze_file(&mut self, mut f: ParseFile<'a>) {
-        let ParseFile {
-            file,
-            mut objects,
-            functions
-        } = f;
+        let ParseFile { file, mut objects, functions } = f;
 
         self.file = Some(file); //TODO: this is wonky, fix?
 
         for obj in &objects {
-        let analyze_obj = self.initialize_object(obj);
+            let analyze_obj = self.initialize_object(obj);
             self.obj_skeletons.insert(obj.name.clone(), analyze_obj);
         }
 
@@ -211,7 +207,9 @@ impl<'a> Analyzer<'a> {
             &mut AstStatementData::Break |
             &mut AstStatementData::Continue => {
                 if !self.breakable {
-                    self.report_analyze_err_at(stmt.pos, format!("Cannot `break` or `continue` outside of a `while`"))
+                    self.report_analyze_err_at(stmt.pos,
+                                               format!("Cannot `break` or `continue` outside of \
+                                                        a `while`"))
                 }
             }
             &mut AstStatementData::NoOp => {}
@@ -335,7 +333,7 @@ impl<'a> Analyzer<'a> {
                         TY_BOOLEAN
                     }
                     BinOpKind::Xor | BinOpKind::And | BinOpKind::Or => {
-                        //TODO: also numeric not float
+                        // TODO: also numeric not float
                         if !self.is_boolean_ty(lhs_ty) {
                             self.report_analyze_err_at(pos,
                                                        format!("Expected sub-expression of type \
@@ -377,7 +375,8 @@ impl<'a> Analyzer<'a> {
 
         for ref mem in &obj.members {
             if member_tys.contains_key(&mem.name) {
-                self.report_analyze_err_at(mem.pos, format!("Duplicate member named `{}`", mem.name));
+                self.report_analyze_err_at(mem.pos,
+                                           format!("Duplicate member named `{}`", mem.name));
             }
 
             let mem_ty = self.initialize_ty(&mem.ast_ty);
@@ -402,8 +401,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_object(&mut self, obj: &mut AstObject) {
-        //TODO: set self type
-
+        self.self_ty = obj.id;
     }
 
     /// Raises the variable scope up one level.

@@ -64,17 +64,18 @@ impl FnSignature {
 pub struct AnalyzeObject {
     member_tys: HashMap<String, Ty>,
     member_functions: HashMap<String, FnSignature>,
-    static_functions: HashMap<String, FnSignature>
+    static_functions: HashMap<String, FnSignature>,
 }
 
 impl AnalyzeObject {
     pub fn new(member_tys: HashMap<String, Ty>,
-           member_functions: HashMap<String, FnSignature>,
-           static_functions: HashMap<String, FnSignature>) -> AnalyzeObject {
+               member_functions: HashMap<String, FnSignature>,
+               static_functions: HashMap<String, FnSignature>)
+               -> AnalyzeObject {
         AnalyzeObject {
             member_tys: member_tys,
             member_functions: member_functions,
-            static_functions: static_functions
+            static_functions: static_functions,
         }
     }
 }

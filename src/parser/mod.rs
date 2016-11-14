@@ -140,9 +140,11 @@ impl<'a> Parser<'a> {
 
                 objects.push(obj_result.unwrap());
             } else {
-                //TODO: wonky
-                let err = self.error::<()>(format!("Expected `fn` or `object`, found `{}`",
-                                     self.next_token)).unwrap_err();
+                // TODO: wonky
+                let err =
+                    self.error::<()>(format!("Expected `fn` or `object`, found `{}`",
+                                             self.next_token))
+                        .unwrap_err();
                 report_parse_err_at(&self.lexer.file, err);
             }
         }
@@ -491,7 +493,7 @@ impl<'a> Parser<'a> {
             self.bump(); // Okay, consume the op
             let rhs = if op == Token::Equals {
                 self.ensure_lval(&lhs)?;
-                    self.parse_expr(new_prec)
+                self.parse_expr(new_prec)
             } else {
                 self.parse_expr(new_prec + 1)
             }?;
@@ -652,12 +654,10 @@ impl<'a> Parser<'a> {
 
     fn ensure_lval(&self, expr: &AstExpression) -> ParseResult<()> {
         match &expr.expr {
-            &AstExpressionData::Identifier {..} |
-            &AstExpressionData::Access {..} => Ok(()),
-            &AstExpressionData::TupleAccess { ref accessible, .. } => {
-                self.ensure_lval(accessible)
-            }
-            _ => self.error_at(expr.pos, format!("Expected lval for left of `=`"))
+            &AstExpressionData::Identifier { .. } |
+            &AstExpressionData::Access { .. } => Ok(()),
+            &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
+            _ => self.error_at(expr.pos, format!("Expected lval for left of `=`")),
         }
     }
 

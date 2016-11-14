@@ -7,17 +7,18 @@ use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId};
 pub struct ParseFile<'a> {
     pub file: FileReader<'a>,
     pub functions: Vec<AstFunction>,
-    pub objects: Vec<AstObject>
+    pub objects: Vec<AstObject>,
 }
 
 impl<'a> ParseFile<'a> {
     pub fn new(file: FileReader<'a>,
                functions: Vec<AstFunction>,
-               objects: Vec<AstObject>) -> ParseFile<'a> {
+               objects: Vec<AstObject>)
+               -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions,
-            objects: objects
+            objects: objects,
         }
     }
 }
@@ -305,7 +306,7 @@ pub enum AstExpressionData {
     /// A tuple access `a:1`
     TupleAccess {
         accessible: Box<AstExpression>,
-        idx: u32
+        idx: u32,
     },
 
     Not(SubExpression),
@@ -529,20 +530,21 @@ pub struct AstObject {
     /// The functions (both static and member) of the object
     pub functions: Vec<AstObjectFunction>,
     /// The members that are contained in the object
-    pub members: Vec<AstObjectMember>
+    pub members: Vec<AstObjectMember>,
 }
 
 impl AstObject {
     pub fn new(pos: usize,
                name: String,
                functions: Vec<AstObjectFunction>,
-               members: Vec<AstObjectMember>) -> AstObject {
+               members: Vec<AstObjectMember>)
+               -> AstObject {
         AstObject {
             pos: pos,
             name: name,
             obj_id: 0,
             functions: functions,
-            members: members
+            members: members,
         }
     }
 }
@@ -569,11 +571,12 @@ pub struct AstObjectFunction {
 
 impl AstObjectFunction {
     pub fn new(pos: usize,
-           name: String,
-           has_self: bool,
-           parameter_list: Vec<AstFnParameter>,
-           return_type: AstType,
-           definition: AstBlock) -> AstObjectFunction {
+               name: String,
+               has_self: bool,
+               parameter_list: Vec<AstFnParameter>,
+               return_type: AstType,
+               definition: AstBlock)
+               -> AstObjectFunction {
         AstObjectFunction {
             pos: pos,
             name: name,
