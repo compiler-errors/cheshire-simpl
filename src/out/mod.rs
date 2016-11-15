@@ -25,7 +25,14 @@ pub struct Out {
 
 impl Out {
     pub fn out(ana: Analyzer) {
-        let Analyzer { fn_signatures, fns, var_tys, ty_map, .. } = ana; //TODO: strings
+        let Analyzer { fn_signatures,
+                       fns,
+                       var_tys,
+                       ty_map,
+                       strings,
+                       obj_skeletons,
+                       objs,
+                       .. } = ana; //TODO: strings
 
         let mut out = Out {
             ty_map: ty_map,
@@ -33,6 +40,14 @@ impl Out {
             blk_new_id: 1,
             expr_new_id: 1,
         };
+
+        for (id, (string, len)) in strings {
+            println!("@str{} = constant [{} x i8] c\"{}\\00\"", id, len + 1, string);
+        }
+
+        for obj_skeleton in obj_skeletons.values() {
+            print!("")
+        }
 
         for fun in fns.keys() {
             let ref fun_body = fns[fun];
@@ -204,7 +219,13 @@ impl Out {
                     ExprRef::Constant("null".to_string())
                 }
             }
-            &AstExpressionData::String { id, .. } => ExprRef::Constant(format!("@str{}", id)),
+            &AstExpressionData::String { id, len, .. } => {
+                let ptr_id = self.expr_new_id;
+                self.expr_new_id += 1;
+                println!("%expr{} = getelementptr [{} x i8], [{} x i8]* @str{}, i64 0, i64 0",
+                         ptr_id, len + 1, len + 1, id);
+                ExprRef::ExprId(ptr_id)
+            }
             &AstExpressionData::Int(ref s) => ExprRef::Constant(s.clone()),
             // TODO: check constant right size...
             &AstExpressionData::UInt(ref s) => ExprRef::Constant(s.clone()),
@@ -392,6 +413,7 @@ impl Out {
                     ExprRef::ExprId(out_id)
                 }
             }
+            _ => unimplemented!()
         }
     }
 
@@ -532,6 +554,7 @@ impl Out {
 
                 s
             }
+            &AnalyzeType::Object(obj_id) => format!("%cheshire_object{}", obj_id),
             &AnalyzeType::Array(inner_ty) => format!("{{i64, {}*}}", self.ty_str(inner_ty)),
             &AnalyzeType::Same(_) |
             &AnalyzeType::NullInfer |

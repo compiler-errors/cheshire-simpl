@@ -6,6 +6,7 @@ pub enum Token {
     Dot,            //    .
     Comma,          //    ,
     Colon,          //    :
+    ColonColon,     //    ::
     LBrace,         //    {
     RBrace,         //    }
     LSqBracket,     //    [
@@ -49,7 +50,8 @@ pub enum Token {
     Null,
     Object,
     Has,
-    SelfType,
+    SelfRef,
+    Allocate,
 
     /* Privileged Types */
     Int,
@@ -80,6 +82,7 @@ impl Display for Token {
             &Token::Dot => write!(f, "."),
             &Token::Comma => write!(f, "),"),
             &Token::Colon => write!(f, ":"),
+            &Token::ColonColon => write!(f, "::"),
             &Token::LBrace => write!(f, "{{"),
             &Token::RBrace => write!(f, "}}"),
             &Token::LSqBracket => write!(f, "["),
@@ -119,7 +122,8 @@ impl Display for Token {
             &Token::Null => write!(f, "null"),
             &Token::Object => write!(f, "object"),
             &Token::Has => write!(f, "has"),
-            &Token::SelfType => write!(f, "self"),
+            &Token::SelfRef => write!(f, "self"),
+            &Token::Allocate => write!(f, "allocate"),
             &Token::Int => write!(f, "Type (Int)"),
             &Token::UInt => write!(f, "Type (UInt)"),
             &Token::Bool => write!(f, "Type (Bool)"),

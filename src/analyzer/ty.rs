@@ -3,6 +3,7 @@ use std::collections::HashMap;
 pub type VarId = u32;
 pub type StringId = u32;
 pub type ObjId = u32;
+pub type MemberId = u32;
 pub type Ty = u32;
 
 pub const TY_NOTHING: Ty = 1;
@@ -41,6 +42,7 @@ pub enum AnalyzeType {
     String,
     Tuple(Vec<Ty>),
     Array(Ty),
+    Object(ObjId),
 
     Same(Ty),
 }
@@ -62,17 +64,23 @@ impl FnSignature {
 }
 
 pub struct AnalyzeObject {
-    member_tys: HashMap<String, Ty>,
-    member_functions: HashMap<String, FnSignature>,
-    static_functions: HashMap<String, FnSignature>,
+    pub name: String,
+    pub member_ids: HashMap<String, MemberId>,
+    pub member_tys: HashMap<MemberId, Ty>,
+    pub member_functions: HashMap<String, FnSignature>,
+    pub static_functions: HashMap<String, FnSignature>,
 }
 
 impl AnalyzeObject {
-    pub fn new(member_tys: HashMap<String, Ty>,
+    pub fn new(obj_name: String,
+               member_ids: HashMap<String, MemberId>,
+               member_tys: HashMap<MemberId, Ty>,
                member_functions: HashMap<String, FnSignature>,
                static_functions: HashMap<String, FnSignature>)
                -> AnalyzeObject {
         AnalyzeObject {
+            name: obj_name,
+            member_ids: member_ids,
             member_tys: member_tys,
             member_functions: member_functions,
             static_functions: static_functions,

@@ -95,6 +95,7 @@ pub enum AstType {
     String,
     Array { ty: Box<AstType> },
     Tuple { types: Vec<AstType> },
+    Object(String, usize) //TODO: pos is tacked on hackily...
 }
 
 impl AstType {
@@ -104,6 +105,10 @@ impl AstType {
 
     pub fn tuple(types: Vec<AstType>) -> AstType {
         AstType::Tuple { types: types }
+    }
+
+    pub fn object(obj: String, pos: usize) -> AstType {
+        AstType::Object(obj, pos)
     }
 }
 
@@ -280,6 +285,7 @@ pub enum AstExpressionData {
     True,
     False,
     Null,
+    SelfRef,
     String {
         string: String,
         len: u32,
@@ -298,6 +304,18 @@ pub enum AstExpressionData {
         name: String,
         args: Vec<AstExpression>,
     },
+    /// Call an object's member function
+    ObjectCall {
+        object: Box<AstExpression>,
+        name: String,
+        args: Vec<AstExpression>,
+    },
+    /// Call an object's static function
+    StaticCall {
+        obj_name: String,
+        fn_name: String,
+        args: Vec<AstExpression>,
+    },
     /// An array access `a[1u]`
     Access {
         accessible: Box<AstExpression>,
@@ -307,6 +325,16 @@ pub enum AstExpressionData {
     TupleAccess {
         accessible: Box<AstExpression>,
         idx: u32,
+    },
+    /// Call an object's member
+    ObjectAccess {
+        accessible: Box<AstExpression>,
+        member: String,
+    },
+
+    Allocate {
+        object: String,
+        object_id: ObjId
     },
 
     Not(SubExpression),
@@ -432,6 +460,36 @@ impl AstExpression {
         }
     }
 
+    pub fn object_call(lhs: AstExpression,
+                       name: String,
+                       args: Vec<AstExpression>,
+                       pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::ObjectCall {
+                object: Box::new(lhs),
+                name: name,
+                args: args,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn static_call(obj_name: String,
+                       fn_name: String,
+                       args: Vec<AstExpression>,
+                       pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::StaticCall {
+                obj_name: obj_name,
+                fn_name: fn_name,
+                args: args,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
     pub fn access(lhs: AstExpression, idx: AstExpression, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Access {
@@ -448,6 +506,28 @@ impl AstExpression {
             expr: AstExpressionData::TupleAccess {
                 accessible: Box::new(lhs),
                 idx: idx,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn object_access(lhs: AstExpression, member: String, pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::ObjectAccess {
+                accessible: Box::new(lhs),
+                member: member,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn allocate(object: String, pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::Allocate {
+                object: object,
+                object_id: 0,
             },
             ty: 0,
             pos: pos,
@@ -517,6 +597,14 @@ impl AstExpression {
             pos: pos,
         }
     }
+
+    pub fn self_ref(pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::SelfRef,
+            ty: 0,
+            pos: pos,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -526,7 +614,7 @@ pub struct AstObject {
     /// The object name
     pub name: String,
     /// The Id associated with the object in Analysis
-    pub obj_id: ObjId,
+    pub id: ObjId,
     /// The functions (both static and member) of the object
     pub functions: Vec<AstObjectFunction>,
     /// The members that are contained in the object
@@ -542,7 +630,7 @@ impl AstObject {
         AstObject {
             pos: pos,
             name: name,
-            obj_id: 0,
+            id: 0,
             functions: functions,
             members: members,
         }
