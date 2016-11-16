@@ -702,11 +702,11 @@ impl<'a> Parser<'a> {
             &AstExpressionData::Identifier { .. } |
             &AstExpressionData::Access { .. } => Ok(()),
             &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
-            &AstExpressionData::ObjectAccess { ref accessible, .. } => {
-                if accessible.expr == AstExpressionData::SelfRef {
+            &AstExpressionData::ObjectAccess { ref object, .. } => {
+                if object.expr == AstExpressionData::SelfRef {
                     Ok(())
                 } else {
-                    self.ensure_lval(accessible)
+                    self.ensure_lval(object)
                 }
             }
             _ => self.error_at(expr.pos, format!("Expected lval for left of `=`")),
@@ -735,33 +735,27 @@ impl<'a> Parser<'a> {
 
         let mut fns = Vec::new();
         let mut members = Vec::new();
-        let mut expect_comma = false;
 
         while !self.check_consume(Token::RBrace) {
-            if expect_comma {
-                self.expect_consume(Token::Comma)?;
-                expect_comma = false;
-            }
-
-            let mem_pos = self.pos;
-            let mem_name = self.expect_get_identifier()?;
-            self.expect_consume(Token::Colon)?;
-
             if self.check(Token::Fn) {
-                fns.push(self.parse_object_function(mem_name)?);
+                fns.push(self.parse_object_function()?);
             } else {
+                let mem_pos = self.pos;
+                let mem_name = self.expect_get_identifier()?;
+                self.expect_consume(Token::Colon)?;
                 let ty = self.parse_type()?;
                 members.push(AstObjectMember::new(mem_name, ty, mem_pos));
-                expect_comma = true;
+                self.expect_consume(Token::Dot)?;
             }
         }
 
         Ok(AstObject::new(pos, name, fns, members))
     }
 
-    fn parse_object_function(&mut self, name: String) -> ParseResult<AstObjectFunction> {
+    fn parse_object_function(&mut self) -> ParseResult<AstObjectFunction> {
         let pos = self.pos;
         self.expect_consume(Token::Fn)?;
+        let name = self.expect_get_identifier()?;
         self.expect_consume(Token::LParen)?;
         let has_self = self.check_consume(Token::SelfRef);
         let mut parameters = Vec::new();

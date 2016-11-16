@@ -19,6 +19,7 @@ type BlkId = u32;
 pub struct Out {
     ty_map: HashMap<Ty, AnalyzeType>,
     var_tys: HashMap<VarId, Ty>,
+    obj_names: HashMap<ObjId, String>,
     blk_new_id: BlkId,
     expr_new_id: ExprId,
 }
@@ -30,6 +31,7 @@ impl Out {
                        var_tys,
                        ty_map,
                        strings,
+                       obj_names,
                        obj_skeletons,
                        objs,
                        .. } = ana; //TODO: strings
@@ -37,6 +39,7 @@ impl Out {
         let mut out = Out {
             ty_map: ty_map,
             var_tys: var_tys,
+            obj_names: obj_names,
             blk_new_id: 1,
             expr_new_id: 1,
         };
@@ -45,8 +48,8 @@ impl Out {
             println!("@str{} = constant [{} x i8] c\"{}\\00\"", id, len + 1, string);
         }
 
-        for obj_skeleton in obj_skeletons.values() {
-            print!("")
+        for (_, obj_skeleton) in &obj_skeletons {
+            out.output_object_skeleton(obj_skeleton);
         }
 
         for fun in fns.keys() {
@@ -55,6 +58,86 @@ impl Out {
 
             out.output_function(fun_body, fun_sig);
         }
+
+        for obj_id in objs.keys() {
+            let ref obj = objs[obj_id];
+            let ref obj_skeleton = obj_skeletons[obj_id];
+            out.output_object(obj, obj_skeleton);
+        }
+    }
+
+    fn output_object(&mut self, obj: &AstObject, obj_skeleton: &AnalyzeObject) {
+        for obj_fn in &obj.functions {
+            if obj_fn.has_self {
+                self.output_object_function(obj.id, obj_fn, &obj_skeleton.member_functions[&obj_fn.name], true);
+            } else {
+                self.output_object_function(obj.id, obj_fn, &obj_skeleton.static_functions[&obj_fn.name], false);
+            }
+        }
+    }
+
+    fn output_object_skeleton(&self, obj_skeleton: &AnalyzeObject) {
+        print!("%object__{} = type {{ ", obj_skeleton.name);
+
+        let mut first = true;
+        for ty in &obj_skeleton.member_tys {
+            if !first {
+                print!(", ");
+            } else {
+                first = false;
+            }
+            print!("{}", self.ty_str(*ty));
+        }
+
+        println!(" }}");
+    }
+
+    fn output_object_function(&mut self, obj_id: ObjId, body: &AstObjectFunction, sig: &FnSignature, has_self: bool) {
+        let ret_ty_str = self.ty_str(sig.return_ty);
+        let decorated_fn_name = &body.name; //TODO: Decorate
+
+        // Output function signature
+        print!("\n\ndefine {} @_object__{}__{}(", ret_ty_str, self.obj_names[&obj_id], decorated_fn_name);
+
+        if has_self {
+            print!("%object__{}* %self", self.obj_names[&obj_id]);
+        }
+
+        // Output function args in signature
+        for (i, ty) in sig.params.iter().enumerate() {
+            let param_ty_str = self.ty_str(*ty);
+            if i != 0 || has_self {
+                print!(", ");
+            }
+            print!("{} %arg{}", param_ty_str, i);
+        }
+        println!(") {{");
+
+        // Declare the function's variables
+        for i in body.beginning_of_vars..body.end_of_vars {
+            let var_ty_str = self.ty_str(self.var_tys[&i]);
+            println!("%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
+        }
+
+        for i in 0..(sig.params.len() as VarId) {
+            let var_ty_str = self.ty_str(sig.params[i as usize]);
+            println!("store {} %arg{}, {}* %var{}",
+                     var_ty_str,
+                     i,
+                     var_ty_str,
+                     body.beginning_of_vars + i);
+        }
+
+        let returns = self.output_block(&body.definition, None);
+        if !returns {
+            if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
+                println!("ret {{}} undef");
+            } else {
+                println!("ret {} zeroinitializer", ret_ty_str);
+            }
+        }
+
+        println!("}}");
     }
 
     fn output_function(&mut self, body: &AstFunction, sig: &FnSignature) {
@@ -211,6 +294,7 @@ impl Out {
             &AstExpressionData::Nothing => ExprRef::Constant("undef".to_string()),
             &AstExpressionData::True => ExprRef::Constant("true".to_string()),
             &AstExpressionData::False => ExprRef::Constant("false".to_string()),
+            &AstExpressionData::SelfRef => ExprRef::Constant("%self".to_string()),
             &AstExpressionData::Null => {
                 if self.is_array_ty(expr.ty) {
                     let inner_ty_str = self.array_ty_str(expr.ty);
@@ -319,6 +403,31 @@ impl Out {
 
                 ExprRef::ExprId(return_id)
             }
+            &AstExpressionData::Allocate { ref object } => {
+                let sizeptr_id = self.expr_new_id + 0; // The pointer signifying the size of T
+                let size_id = self.expr_new_id + 1; // The integer signifying the size of T
+                let obji8_id = self.expr_new_id + 2; // The T* array malloc'ed as i8* pointer
+                let obj_id = self.expr_new_id + 3; // The T* array pointer
+                self.expr_new_id += 5;
+
+                let obj_struct_str = self.struct_str(expr.ty);
+                println!("%expr{} = getelementptr {}, {}* null, i64 1",
+                         sizeptr_id,
+                         obj_struct_str,
+                         obj_struct_str);
+                println!("%expr{} = ptrtoint {}* %expr{} to i64",
+                         size_id,
+                         obj_struct_str,
+                         sizeptr_id); //TODO: maybe i64 for size?
+                println!("%expr{} = call i8* @_cheshire_malloc(i64 %expr{})",
+                         obji8_id,
+                         size_id);
+                println!("%expr{} = bitcast i8* %expr{} to {}*",
+                         obj_id,
+                         obji8_id,
+                         obj_struct_str);
+                ExprRef::ExprId(obj_id)
+            }
             &AstExpressionData::Call { ref name, ref args } => {
                 let call_id = self.expr_new_id;
                 self.expr_new_id += 1;
@@ -374,6 +483,19 @@ impl Out {
                          idx);
                 ExprRef::ExprId(element_id)
             }
+            &AstExpressionData::ObjectAccess { ref object, mem_idx, .. } => {
+                let object_ref = self.output_expression(object);
+                let struct_str = self.struct_str(object.ty); // Just the plain @object_NAME
+                let mem_ty_str = self.ty_str(expr.ty);
+                let mem_id = self.expr_new_id;
+                let loaded_id = self.expr_new_id + 1;
+                self.expr_new_id += 2;
+                println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
+                         mem_id, struct_str, struct_str, object_ref, mem_idx);
+                println!("%expr{} = load {}, {}* %expr{}",
+                         loaded_id, mem_ty_str, mem_ty_str, mem_id);
+                ExprRef::ExprId(loaded_id)
+            }
             &AstExpressionData::Not(ref expr) => {
                 let expr_ref = self.output_expression(expr);
                 let expr_ty = self.ty_str(expr.ty);
@@ -390,6 +512,42 @@ impl Out {
                 println!("%expr{} = sub {} 0, {}", neg_id, expr_ty, expr_ref);
                 ExprRef::ExprId(neg_id)
             }
+            &AstExpressionData::ObjectCall { ref object, ref fn_name, ref args } => {
+                let object_ty = self.ty_str(object.ty);
+                let object_ref = self.output_expression(object);
+                let call_id = self.expr_new_id;
+                self.expr_new_id += 1;
+                let ret_ty_str = self.ty_str(expr.ty);
+                let arg_refs: Vec<_> =
+                    args.iter().map(|ref e| (e.ty, self.output_expression(e))).collect();
+                let object_name = self.object_name(object.ty);
+                print!("%expr{} = call {} @_object__{}__{}(", call_id, ret_ty_str, object_name, fn_name);
+                print!("{} {}", object_ty, object_ref);
+                for (arg_ty, arg_ref) in arg_refs.into_iter() {
+                    print!(", ");
+                    let arg_ty_str = self.ty_str(arg_ty);
+                    print!("{} {}", arg_ty_str, arg_ref);
+                }
+                println!(")");
+                ExprRef::ExprId(call_id)
+            }
+            &AstExpressionData::StaticCall { ref obj_name, ref fn_name, ref args, .. } => {
+                let call_id = self.expr_new_id;
+                self.expr_new_id += 1;
+                let ret_ty_str = self.ty_str(expr.ty);
+                let arg_refs: Vec<_> =
+                    args.iter().map(|e| (e.ty, self.output_expression(e))).collect();
+                print!("%expr{} = call {} @_object__{}__{}(", call_id, ret_ty_str, obj_name, fn_name);
+                for (i, (arg_ty, arg_ref)) in arg_refs.into_iter().enumerate() {
+                    if i != 0 {
+                        print!(", ");
+                    }
+                    let arg_ty_str = self.ty_str(arg_ty);
+                    print!("{} {}", arg_ty_str, arg_ref);
+                }
+                println!(")");
+                ExprRef::ExprId(call_id)
+            }
             &AstExpressionData::BinOp { kind, ref lhs, ref rhs } => {
                 if kind == BinOpKind::Set {
                     let lhs_ref = self.output_expression_lval(lhs);
@@ -401,7 +559,7 @@ impl Out {
                     let lhs_ref = self.output_expression(lhs);
                     let rhs_ref = self.output_expression(rhs);
                     let op_ty = self.ty_str(lhs.ty);
-                    let op_str = self.get_op_string(kind, lhs.ty);
+                    let op_str = self.op_string(kind, lhs.ty);
                     let out_id = self.expr_new_id;
                     self.expr_new_id += 1;
                     println!("%expr{} = {} {} {}, {}",
@@ -413,7 +571,6 @@ impl Out {
                     ExprRef::ExprId(out_id)
                 }
             }
-            _ => unimplemented!()
         }
     }
 
@@ -453,11 +610,20 @@ impl Out {
                          idx);
                 ExprRef::ExprId(element_id)
             }
+            &AstExpressionData::ObjectAccess { ref object, mem_idx, .. } => {
+                let object_ref = self.output_expression(object);
+                let struct_str = self.struct_str(object.ty); // Just the plain @object_NAME
+                let mem_id = self.expr_new_id;
+                self.expr_new_id += 1;
+                println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
+                         mem_id, struct_str, struct_str, object_ref, mem_idx);
+                ExprRef::ExprId(mem_id)
+            }
             _ => unreachable!(),
         }
     }
 
-    fn get_op_string(&self, kind: BinOpKind, ty: Ty) -> &'static str {
+    fn op_string(&self, kind: BinOpKind, ty: Ty) -> &'static str {
         if self.is_simple_ty(ty, AnalyzeType::Int) {
             match kind {
                 BinOpKind::Multiply => "mul",
@@ -554,11 +720,27 @@ impl Out {
 
                 s
             }
-            &AnalyzeType::Object(obj_id) => format!("%cheshire_object{}", obj_id),
+            &AnalyzeType::Object(obj_id) => format!("%object__{}*", self.obj_names[&obj_id]), //:( can't use object_name
             &AnalyzeType::Array(inner_ty) => format!("{{i64, {}*}}", self.ty_str(inner_ty)),
             &AnalyzeType::Same(_) |
             &AnalyzeType::NullInfer |
             &AnalyzeType::Infer => unreachable!(),
+        }
+    }
+
+    fn object_name(&self, ty: Ty) -> &String {
+        match &self.ty_map[&ty] {
+            &AnalyzeType::Same(same_ty) => self.object_name(same_ty),
+            &AnalyzeType::Object(obj_id) => &self.obj_names[&obj_id],
+            _ => unreachable!()
+        }
+    }
+
+    fn struct_str(&self, ty: Ty) -> String {
+        match &self.ty_map[&ty] {
+            &AnalyzeType::Same(same_ty) => self.struct_str(same_ty),
+            &AnalyzeType::Object(obj_id) => format!("%object__{}", self.obj_names[&obj_id]),
+            _ => unreachable!()
         }
     }
 

@@ -28,6 +28,7 @@ pub struct Analyzer<'a> {
     obj_new_id: ObjId,
     /// Associates an object name to a unique ID
     pub obj_ids: HashMap<String, ObjId>,
+    pub obj_names: HashMap<ObjId, String>,
     /// Associates an object id to an object "skeleton"
     pub obj_skeletons: HashMap<ObjId, AnalyzeObject>,
     /// Associates an object ID to a parsed object
@@ -83,6 +84,7 @@ impl<'a> Analyzer<'a> {
             return_ty: 0,
             obj_new_id: OBJ_FIRST_NEW_ID,
             obj_ids: HashMap::new(),
+            obj_names: HashMap::new(),
             obj_skeletons: HashMap::new(),
             objs: HashMap::new(),
             self_id: 0,
@@ -95,7 +97,7 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Analyze a file
-    pub fn analyze_file(&mut self, mut f: ParseFile<'a>) {
+    pub fn analyze_file(&mut self, f: ParseFile<'a>) {
         let ParseFile { file, mut objects, functions } = f;
 
         self.file = Some(file); //TODO: this is wonky, fix?
@@ -104,6 +106,10 @@ impl<'a> Analyzer<'a> {
             obj.id = self.obj_new_id;
             self.obj_new_id += 1;
             self.obj_ids.insert(obj.name.clone(), obj.id);
+            self.obj_names.insert(obj.id, obj.name.clone());
+        }
+
+        for obj in &objects {
             let analyze_obj = self.initialize_object(obj);
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
@@ -293,10 +299,10 @@ impl<'a> Analyzer<'a> {
                 let fn_sig = self.get_function_signature(name, expression.pos);
                 self.typecheck_function_call(fn_sig, arg_tys, pos)
             }
-            &mut AstExpressionData::ObjectCall { ref mut object, ref name, ref mut args } => {
+            &mut AstExpressionData::ObjectCall { ref mut object, ref fn_name, ref mut args } => {
                 let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
                 let object_ty = self.typecheck_expr(object);
-                let fn_sig = self.get_member_function_signature(object_ty, name, expression.pos);
+                let fn_sig = self.get_member_function_signature(object_ty, fn_name, expression.pos);
                 self.typecheck_function_call(fn_sig, arg_tys, pos)
             }
             &mut AstExpressionData::StaticCall { ref obj_name, ref fn_name, ref mut args } => {
@@ -315,9 +321,10 @@ impl<'a> Analyzer<'a> {
                 let tuple_ty = self.typecheck_expr(accessible);
                 self.extract_tuple_inner_ty(tuple_ty, idx, accessible.pos)
             }
-            &mut AstExpressionData::ObjectAccess { ref mut accessible, ref member } => {
-                let obj_ty = self.typecheck_expr(accessible);
-                self.extract_object_member_ty(obj_ty, member, pos)
+            &mut AstExpressionData::ObjectAccess { ref mut object, ref mem_name, ref mut mem_idx } => {
+                let obj_ty = self.typecheck_expr(object);
+                *mem_idx = self.extract_object_member_idx(obj_ty, mem_name, pos);
+                self.extract_object_member_ty(obj_ty, mem_name, pos)
             }
             &mut AstExpressionData::Not(ref mut expr) => {
                 let ty = self.typecheck_expr(expr);
@@ -338,9 +345,9 @@ impl<'a> Analyzer<'a> {
                                                format!("Expected numeric sub-expression"));
                 }
             }
-            &mut AstExpressionData::Allocate { ref object, ref mut object_id } => {
-                *object_id = self.get_object_id(object, pos);
-                self.make_object_ty(*object_id)
+            &mut AstExpressionData::Allocate { ref object } => {
+                let obj_id = self.get_object_id(object, pos);
+                self.make_object_ty(obj_id)
             }
             &mut AstExpressionData::BinOp { kind, ref mut lhs, ref mut rhs } => {
                 let lhs_ty = self.typecheck_expr(lhs);
@@ -408,10 +415,9 @@ impl<'a> Analyzer<'a> {
 
     fn initialize_object(&mut self, obj: &AstObject) -> AnalyzeObject {
         let mut member_ids = HashMap::new();
-        let mut member_tys = HashMap::new();
+        let mut member_tys = Vec::new();
         let mut member_signatures = HashMap::new();
         let mut static_signatures = HashMap::new();
-        let mut member_next_id = 0;
 
         for ref mem in &obj.members {
             if member_ids.contains_key(&mem.name) {
@@ -419,11 +425,10 @@ impl<'a> Analyzer<'a> {
                                            format!("Duplicate member named `{}`", mem.name));
             }
 
-            let mem_id = member_next_id;
-            member_next_id += 1;
-            let mem_ty = self.initialize_ty(&mem.ast_ty);
+            let mem_id = member_tys.len() as u32;
+            let mem_ty = self.initialize_ty(&mem.member_type);
+            member_tys.push(mem_ty);
             member_ids.insert(mem.name.clone(), mem_id);
-            member_tys.insert(mem_id, mem_ty);
         }
 
         for ref fun in &obj.functions {
@@ -759,7 +764,8 @@ impl<'a> Analyzer<'a> {
     fn is_nullable(&self, ty: &AnalyzeType) -> bool {
         match ty {
             &AnalyzeType::String |
-            &AnalyzeType::Array(_) => true,
+            &AnalyzeType::Array(_) |
+            &AnalyzeType::Object(_) => true,
             _ => false,
         }
     }
@@ -795,7 +801,22 @@ impl<'a> Analyzer<'a> {
                     self.report_analyze_err_at(pos, format!("Cannot access object member by name `{}`", member));
                 }
 
-                obj_skeleton.member_tys[&obj_skeleton.member_ids[member]]
+                obj_skeleton.member_tys[obj_skeleton.member_ids[member] as usize] //TODO: wonky
+            }
+            _ => self.report_analyze_err_at(pos, format!("Cannot determine object type of left-hand side")),
+        }
+    }
+
+    fn extract_object_member_idx(&self, obj_ty: Ty, member: &String, pos: usize) -> MemberId {
+        match self.real_ty(obj_ty) {
+            &AnalyzeType::Object(obj_id) => {
+                let obj_skeleton = &self.obj_skeletons[&obj_id];
+
+                if !obj_skeleton.member_ids.contains_key(member) {
+                    self.report_analyze_err_at(pos, format!("Cannot access object member by name `{}`", member));
+                }
+
+                obj_skeleton.member_ids[member]
             }
             _ => self.report_analyze_err_at(pos, format!("Cannot determine object type of left-hand side")),
         }

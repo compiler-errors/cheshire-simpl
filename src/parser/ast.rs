@@ -1,5 +1,5 @@
 use util::FileReader;
-use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId};
+use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId, MemberId};
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
@@ -307,7 +307,7 @@ pub enum AstExpressionData {
     /// Call an object's member function
     ObjectCall {
         object: Box<AstExpression>,
-        name: String,
+        fn_name: String,
         args: Vec<AstExpression>,
     },
     /// Call an object's static function
@@ -328,13 +328,13 @@ pub enum AstExpressionData {
     },
     /// Call an object's member
     ObjectAccess {
-        accessible: Box<AstExpression>,
-        member: String,
+        object: Box<AstExpression>,
+        mem_name: String,
+        mem_idx: MemberId,
     },
 
     Allocate {
-        object: String,
-        object_id: ObjId
+        object: String
     },
 
     Not(SubExpression),
@@ -460,14 +460,14 @@ impl AstExpression {
         }
     }
 
-    pub fn object_call(lhs: AstExpression,
-                       name: String,
+    pub fn object_call(object: AstExpression,
+                       fn_name: String,
                        args: Vec<AstExpression>,
                        pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::ObjectCall {
-                object: Box::new(lhs),
-                name: name,
+                object: Box::new(object),
+                fn_name: fn_name,
                 args: args,
             },
             ty: 0,
@@ -512,11 +512,12 @@ impl AstExpression {
         }
     }
 
-    pub fn object_access(lhs: AstExpression, member: String, pos: usize) -> AstExpression {
+    pub fn object_access(object: AstExpression, mem_name: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::ObjectAccess {
-                accessible: Box::new(lhs),
-                member: member,
+                object: Box::new(object),
+                mem_name: mem_name,
+                mem_idx: 0,
             },
             ty: 0,
             pos: pos,
@@ -526,8 +527,7 @@ impl AstExpression {
     pub fn allocate(object: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Allocate {
-                object: object,
-                object_id: 0,
+                object: object
             },
             ty: 0,
             pos: pos,
@@ -681,16 +681,16 @@ impl AstObjectFunction {
 #[derive(Debug, PartialEq, Eq)]
 pub struct AstObjectMember {
     pub name: String,
-    pub ast_ty: AstType,
+    pub member_type: AstType,
     pub ty: Ty,
     pub pos: usize,
 }
 
 impl AstObjectMember {
-    pub fn new(name: String, ast_ty: AstType, pos: usize) -> AstObjectMember {
+    pub fn new(name: String, member_type: AstType, pos: usize) -> AstObjectMember {
         AstObjectMember {
             name: name,
-            ast_ty: ast_ty,
+            member_type: member_type,
             ty: 0,
             pos: pos,
         }

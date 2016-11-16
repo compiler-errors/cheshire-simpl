@@ -66,7 +66,7 @@ impl FnSignature {
 pub struct AnalyzeObject {
     pub name: String,
     pub member_ids: HashMap<String, MemberId>,
-    pub member_tys: HashMap<MemberId, Ty>,
+    pub member_tys: Vec<Ty>,
     pub member_functions: HashMap<String, FnSignature>,
     pub static_functions: HashMap<String, FnSignature>,
 }
@@ -74,7 +74,7 @@ pub struct AnalyzeObject {
 impl AnalyzeObject {
     pub fn new(obj_name: String,
                member_ids: HashMap<String, MemberId>,
-               member_tys: HashMap<MemberId, Ty>,
+               member_tys: Vec<Ty>,
                member_functions: HashMap<String, FnSignature>,
                static_functions: HashMap<String, FnSignature>)
                -> AnalyzeObject {
