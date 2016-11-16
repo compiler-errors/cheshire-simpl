@@ -1,5 +1,5 @@
 use util::FileReader;
-use analyzer::{Ty, TY_NOTHING, VarId, StringId};
+use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId, MemberId};
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
@@ -7,13 +7,18 @@ use analyzer::{Ty, TY_NOTHING, VarId, StringId};
 pub struct ParseFile<'a> {
     pub file: FileReader<'a>,
     pub functions: Vec<AstFunction>,
+    pub objects: Vec<AstObject>,
 }
 
 impl<'a> ParseFile<'a> {
-    pub fn new(file: FileReader<'a>, functions: Vec<AstFunction>) -> ParseFile<'a> {
+    pub fn new(file: FileReader<'a>,
+               functions: Vec<AstFunction>,
+               objects: Vec<AstObject>)
+               -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions,
+            objects: objects,
         }
     }
 }
@@ -90,6 +95,7 @@ pub enum AstType {
     String,
     Array { ty: Box<AstType> },
     Tuple { types: Vec<AstType> },
+    Object(String, usize) //TODO: pos is tacked on hackily...
 }
 
 impl AstType {
@@ -99,6 +105,10 @@ impl AstType {
 
     pub fn tuple(types: Vec<AstType>) -> AstType {
         AstType::Tuple { types: types }
+    }
+
+    pub fn object(obj: String, pos: usize) -> AstType {
+        AstType::Object(obj, pos)
     }
 }
 
@@ -275,6 +285,7 @@ pub enum AstExpressionData {
     True,
     False,
     Null,
+    SelfRef,
     String {
         string: String,
         len: u32,
@@ -293,6 +304,18 @@ pub enum AstExpressionData {
         name: String,
         args: Vec<AstExpression>,
     },
+    /// Call an object's member function
+    ObjectCall {
+        object: Box<AstExpression>,
+        fn_name: String,
+        args: Vec<AstExpression>,
+    },
+    /// Call an object's static function
+    StaticCall {
+        obj_name: String,
+        fn_name: String,
+        args: Vec<AstExpression>,
+    },
     /// An array access `a[1u]`
     Access {
         accessible: Box<AstExpression>,
@@ -301,7 +324,17 @@ pub enum AstExpressionData {
     /// A tuple access `a:1`
     TupleAccess {
         accessible: Box<AstExpression>,
-        idx: u32
+        idx: u32,
+    },
+    /// Call an object's member
+    ObjectAccess {
+        object: Box<AstExpression>,
+        mem_name: String,
+        mem_idx: MemberId,
+    },
+
+    Allocate {
+        object: String
     },
 
     Not(SubExpression),
@@ -427,6 +460,36 @@ impl AstExpression {
         }
     }
 
+    pub fn object_call(object: AstExpression,
+                       fn_name: String,
+                       args: Vec<AstExpression>,
+                       pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::ObjectCall {
+                object: Box::new(object),
+                fn_name: fn_name,
+                args: args,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn static_call(obj_name: String,
+                       fn_name: String,
+                       args: Vec<AstExpression>,
+                       pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::StaticCall {
+                obj_name: obj_name,
+                fn_name: fn_name,
+                args: args,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
     pub fn access(lhs: AstExpression, idx: AstExpression, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Access {
@@ -443,6 +506,28 @@ impl AstExpression {
             expr: AstExpressionData::TupleAccess {
                 accessible: Box::new(lhs),
                 idx: idx,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn object_access(object: AstExpression, mem_name: String, pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::ObjectAccess {
+                object: Box::new(object),
+                mem_name: mem_name,
+                mem_idx: 0,
+            },
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn allocate(object: String, pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::Allocate {
+                object: object
             },
             ty: 0,
             pos: pos,
@@ -508,6 +593,104 @@ impl AstExpression {
     pub fn null_lit(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Null,
+            ty: 0,
+            pos: pos,
+        }
+    }
+
+    pub fn self_ref(pos: usize) -> AstExpression {
+        AstExpression {
+            expr: AstExpressionData::SelfRef,
+            ty: 0,
+            pos: pos,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObject {
+    /// The beginning position of the object
+    pub pos: usize,
+    /// The object name
+    pub name: String,
+    /// The Id associated with the object in Analysis
+    pub id: ObjId,
+    /// The functions (both static and member) of the object
+    pub functions: Vec<AstObjectFunction>,
+    /// The members that are contained in the object
+    pub members: Vec<AstObjectMember>,
+}
+
+impl AstObject {
+    pub fn new(pos: usize,
+               name: String,
+               functions: Vec<AstObjectFunction>,
+               members: Vec<AstObjectMember>)
+               -> AstObject {
+        AstObject {
+            pos: pos,
+            name: name,
+            id: 0,
+            functions: functions,
+            members: members,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObjectFunction {
+    /// The beginning position of the function
+    pub pos: usize,
+    /// The simple name of the function
+    pub name: String,
+    /// Whether the function is a member or static function of the type
+    pub has_self: bool,
+    /// The parameter list that the function receives
+    pub parameter_list: Vec<AstFnParameter>,
+    /// The return type of the function, or AstType::None
+    pub return_type: AstType,
+    /// The collection of statements associated with the function
+    pub definition: AstBlock,
+    /// The first variable ID associated with the function
+    pub beginning_of_vars: VarId,
+    /// The last variable ID associated with the function
+    pub end_of_vars: VarId,
+}
+
+impl AstObjectFunction {
+    pub fn new(pos: usize,
+               name: String,
+               has_self: bool,
+               parameter_list: Vec<AstFnParameter>,
+               return_type: AstType,
+               definition: AstBlock)
+               -> AstObjectFunction {
+        AstObjectFunction {
+            pos: pos,
+            name: name,
+            has_self: has_self,
+            parameter_list: parameter_list,
+            return_type: return_type,
+            definition: definition,
+            beginning_of_vars: 0,
+            end_of_vars: 0,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObjectMember {
+    pub name: String,
+    pub member_type: AstType,
+    pub ty: Ty,
+    pub pos: usize,
+}
+
+impl AstObjectMember {
+    pub fn new(name: String, member_type: AstType, pos: usize) -> AstObjectMember {
+        AstObjectMember {
+            name: name,
+            member_type: member_type,
             ty: 0,
             pos: pos,
         }

@@ -93,6 +93,22 @@ impl<'a> Parser<'a> {
         x
     }
 
+    fn check_identififer(&self) -> bool {
+        if let Token::Identifier(_) = self.next_token {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn check_number(&self) -> bool {
+        if let Token::IntLiteral(_) = self.next_token {
+            true
+        } else {
+            false
+        }
+    }
+
     /// `check_consume` but for an Identifier token.
     fn expect_get_identifier(&mut self) -> ParseResult<String> {
         let tok = self.next_token.clone();
@@ -120,17 +136,36 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::BOF).unwrap();
 
         let mut functions = Vec::new();
+        let mut objects = Vec::new();
+
         while !self.check_consume(Token::EOF) {
-            let fun_result = self.parse_function();
+            if self.check(Token::Fn) {
+                let fun_result = self.parse_function();
 
-            if let Err(e) = fun_result {
-                report_parse_err_at(&self.lexer.file, e);
+                if let Err(e) = fun_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                functions.push(fun_result.unwrap());
+            } else if self.check(Token::Object) {
+                let obj_result = self.parse_object();
+
+                if let Err(e) = obj_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                objects.push(obj_result.unwrap());
+            } else {
+                // TODO: wonky
+                let err =
+                    self.error::<()>(format!("Expected `fn` or `object`, found `{}`",
+                                             self.next_token))
+                        .unwrap_err();
+                report_parse_err_at(&self.lexer.file, err);
             }
-
-            functions.push(fun_result.unwrap());
         }
 
-        ParseFile::new(self.lexer.file, functions)
+        ParseFile::new(self.lexer.file, functions, objects)
     }
 
     /// Parse a single function from the file.
@@ -162,7 +197,7 @@ impl<'a> Parser<'a> {
             self.expect_consume(Token::Colon)?;
             let type_pos = self.pos;
             let param_type = self.parse_type()?;
-            // Array parameter types can't have infer(s) in them
+            // parameter types can't have infer(s) in them
             self.ensure_not_infer(&param_type, type_pos)?;
             parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
         }
@@ -195,8 +230,10 @@ impl<'a> Parser<'a> {
         } else if self.check(Token::LParen) {
             // (A, B, C)
             self.parse_tuple_type()
+        } else if self.check_identififer() {
+            self.parse_object_type()
         } else {
-            self.error(format!("Expected `identifier`, `<` or `(`, found `{}`",
+            self.error(format!("Expected built-in type, `identifier` or `(`, found `{}`",
                                self.next_token))
         }
     }
@@ -256,6 +293,12 @@ impl<'a> Parser<'a> {
 
             Ok(AstType::tuple(types))
         }
+    }
+
+    fn parse_object_type(&mut self) -> ParseResult<AstType> {
+        let pos = self.pos;
+        let obj = self.expect_get_identifier()?;
+        Ok(AstType::object(obj, pos))
     }
 
     // Parse a block of statements including LBrace and RBrace.
@@ -381,9 +424,8 @@ impl<'a> Parser<'a> {
                     return self.error_at(expr.pos, format!("Expected expression statement."));
                 }
             }
-            &AstExpressionData::Call { .. } => {
-                // Do nothing
-            }
+            &AstExpressionData::Call { .. } |
+            &AstExpressionData::ObjectCall { .. } => { }
             _ => {
                 return self.error_at(expr.pos, format!("Expected expression statement."));
             }
@@ -459,9 +501,22 @@ impl<'a> Parser<'a> {
                 }
                 Token::Colon => {
                     self.bump();
-                    let idx = self.expect_get_number()?;
-                    lhs = AstExpression::tuple_access(lhs, idx, pos);
-                    continue;
+                    if self.check_identififer() {
+                        let name = self.expect_get_identifier()?;
+                        if self.check(Token::LParen) {
+                            let params = self.parse_expr_args()?;
+                            lhs = AstExpression::object_call(lhs, name, params, pos);
+                        } else {
+                            lhs = AstExpression::object_access(lhs, name, pos);
+                        }
+                        continue;
+                    } else if self.check_number() {
+                        let idx = self.expect_get_number()?;
+                        lhs = AstExpression::tuple_access(lhs, idx, pos);
+                        continue;
+                    } else {
+                        self.error(format!("Expected either number or identifier after `:`, found {}", self.next_token))?;
+                    }
                 }
                 _ => {}
             }
@@ -474,7 +529,7 @@ impl<'a> Parser<'a> {
             self.bump(); // Okay, consume the op
             let rhs = if op == Token::Equals {
                 self.ensure_lval(&lhs)?;
-                    self.parse_expr(new_prec)
+                self.parse_expr(new_prec)
             } else {
                 self.parse_expr(new_prec + 1)
             }?;
@@ -499,60 +554,69 @@ impl<'a> Parser<'a> {
                 let e = self.parse_expr(9)?;
                 Ok(AstExpression::neg(e, pos))
             }
+            &Token::Allocate => {
+                self.bump();
+                let obj = self.expect_get_identifier()?;
+                Ok(AstExpression::allocate(obj, pos))
+            }
             &Token::LParen => self.parse_paren_expr(),
-            _ => self.parse_expr_literal(),
-        }
-    }
-
-    fn parse_expr_literal(&mut self) -> ParseResult<AstExpression> {
-        let pos = self.pos;
-        match self.next_token.clone() {
-            Token::LSqBracket => self.parse_array_literal(),
-            Token::LParen => self.parse_paren_expr(),
-            Token::String(string, len) => {
-                self.bump();
-                Ok(AstExpression::string_literal(string, len, pos))
-            }
-            Token::IntLiteral(num) => {
-                self.bump();
-                Ok(AstExpression::int_literal(num, pos))
-            }
-            Token::UIntLiteral(num) => {
-                self.bump();
-                Ok(AstExpression::uint_literal(num, pos))
-            }
-            Token::FloatLiteral(num) => {
-                self.bump();
-                Ok(AstExpression::float_literal(num, pos))
-            }
-            Token::CharLiteral(ch) => {
-                self.bump();
-                Ok(AstExpression::char_literal(ch, pos))
-            }
-            Token::Identifier(identifier) => {
-                self.bump();
-                if self.check(Token::LParen) {
-                    let args = self.parse_expr_args()?;
-                    Ok(AstExpression::call(identifier, args, pos))
-                } else {
-                    Ok(AstExpression::identifier(identifier, pos))
-                }
-            }
-            Token::True => {
+            &Token::LSqBracket => self.parse_array_literal(),
+            &Token::True => {
                 self.bump();
                 Ok(AstExpression::true_lit(pos))
             }
-            Token::False => {
+            &Token::False => {
                 self.bump();
                 Ok(AstExpression::false_lit(pos))
             }
-            Token::Null => {
+            &Token::Null => {
                 self.bump();
                 Ok(AstExpression::null_lit(pos))
             }
+            &Token::SelfRef => {
+                self.bump();
+                Ok(AstExpression::self_ref(pos))
+            }
             _ => {
-                self.error(format!("Expected literal, identifier, `new` or `(`, found `{}`",
-                                   self.next_token))
+                // This is wonky, but we don't want to ALWAYS clone...
+                match self.next_token.clone() {
+                    Token::String(ref string, len) => {
+                        self.bump();
+                        Ok(AstExpression::string_literal(string.clone(), len, pos))
+                    }
+                    Token::IntLiteral(ref num) => {
+                        self.bump();
+                        Ok(AstExpression::int_literal(num.clone(), pos))
+                    }
+                    Token::UIntLiteral(ref num) => {
+                        self.bump();
+                        Ok(AstExpression::uint_literal(num.clone(), pos))
+                    }
+                    Token::FloatLiteral(ref num) => {
+                        self.bump();
+                        Ok(AstExpression::float_literal(num.clone(), pos))
+                    }
+                    Token::CharLiteral(ch) => {
+                        self.bump();
+                        Ok(AstExpression::char_literal(ch, pos))
+                    }
+                    Token::Identifier(ref identifier) => {
+                        self.bump();
+                        if self.check(Token::LParen) {
+                            let args = self.parse_expr_args()?;
+                            Ok(AstExpression::call(identifier.clone(), args, pos))
+                        } else if self.check(Token::ColonColon) {
+                            self.bump();
+                            let fn_name = self.expect_get_identifier()?;
+                            let args = self.parse_expr_args()?;
+                            Ok(AstExpression::static_call(identifier.clone(), fn_name, args, pos))
+                        } else {
+                            Ok(AstExpression::identifier(identifier.clone(), pos))
+                        }
+                    }
+                    _ => self.error(format!("Expected literal, identifier, `new` or `(`, found `{}`",
+                                            self.next_token))
+                }
             }
         }
     }
@@ -635,12 +699,17 @@ impl<'a> Parser<'a> {
 
     fn ensure_lval(&self, expr: &AstExpression) -> ParseResult<()> {
         match &expr.expr {
-            &AstExpressionData::Identifier {..} |
-            &AstExpressionData::Access {..} => Ok(()),
-            &AstExpressionData::TupleAccess { ref accessible, .. } => {
-                self.ensure_lval(accessible)
+            &AstExpressionData::Identifier { .. } |
+            &AstExpressionData::Access { .. } => Ok(()),
+            &AstExpressionData::TupleAccess { ref accessible, .. } => self.ensure_lval(accessible),
+            &AstExpressionData::ObjectAccess { ref object, .. } => {
+                if object.expr == AstExpressionData::SelfRef {
+                    Ok(())
+                } else {
+                    self.ensure_lval(object)
+                }
             }
-            _ => self.error_at(expr.pos, format!("Expected lval for left of `=`"))
+            _ => self.error_at(expr.pos, format!("Expected lval for left of `=`")),
         }
     }
 
@@ -656,6 +725,62 @@ impl<'a> Parser<'a> {
             &AstType::Infer => self.error_at(pos, format!("Infer `_` type not expected")),
             _ => Ok(()),
         }
+    }
+
+    fn parse_object(&mut self) -> ParseResult<AstObject> {
+        let pos = self.pos;
+        self.expect_consume(Token::Object)?;
+        let name = self.expect_get_identifier()?;
+        self.expect_consume(Token::LBrace)?;
+
+        let mut fns = Vec::new();
+        let mut members = Vec::new();
+
+        while !self.check_consume(Token::RBrace) {
+            if self.check(Token::Fn) {
+                fns.push(self.parse_object_function()?);
+            } else {
+                let mem_pos = self.pos;
+                let mem_name = self.expect_get_identifier()?;
+                self.expect_consume(Token::Colon)?;
+                let ty = self.parse_type()?;
+                members.push(AstObjectMember::new(mem_name, ty, mem_pos));
+                self.expect_consume(Token::Dot)?;
+            }
+        }
+
+        Ok(AstObject::new(pos, name, fns, members))
+    }
+
+    fn parse_object_function(&mut self) -> ParseResult<AstObjectFunction> {
+        let pos = self.pos;
+        self.expect_consume(Token::Fn)?;
+        let name = self.expect_get_identifier()?;
+        self.expect_consume(Token::LParen)?;
+        let has_self = self.check_consume(Token::SelfRef);
+        let mut parameters = Vec::new();
+
+        while !self.check_consume(Token::RParen) {
+            if parameters.len() != 0 || has_self {
+                // If it's not the first, then we need a comma
+                self.expect_consume(Token::Comma)?;
+            }
+
+            // name colon type
+            let param_pos = self.pos;
+            let param_name = self.expect_get_identifier()?;
+            self.expect_consume(Token::Colon)?;
+            let type_pos = self.pos;
+            let param_type = self.parse_type()?;
+            // parameter types can't have infer(s) in them
+            self.ensure_not_infer(&param_type, type_pos)?;
+            parameters.push(AstFnParameter::new(param_name, param_type, param_pos));
+        }
+
+        let return_type = self.try_parse_return_type()?;
+        let definition = self.parse_block()?;
+
+        Ok(AstObjectFunction::new(pos, name, has_self, parameters, return_type, definition))
     }
 }
 

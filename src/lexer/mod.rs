@@ -86,8 +86,13 @@ impl<'a> Lexer<'a> {
                     return Ok(Token::Comma);
                 }
                 ':' => {
-                    self.bump(1);
-                    return Ok(Token::Colon);
+                    if self.next_char() == ':' {
+                        self.bump(2);
+                        return Ok(Token::ColonColon);
+                    } else {
+                        self.bump(1);
+                        return Ok(Token::Colon);
+                    }
                 }
                 '{' => {
                     self.bump(1);
@@ -342,13 +347,18 @@ impl<'a> Lexer<'a> {
             "false" => Token::False,
             "null" => Token::Null,
 
+            "object" => Token::Object,
+            "has" => Token::Has,
+            "self" => Token::SelfRef,
+            "allocate" => Token::Allocate,
+
             "Int" => Token::Int,
             "UInt" => Token::UInt,
             "Bool" => Token::Bool,
             "String" => Token::StringType,
             "Float" => Token::Float,
             "Char" => Token::Char,
-            "_" => Token::Infer,
+            "_ (Infer)" => Token::Infer,
 
             _ => Token::Identifier(string),
         })

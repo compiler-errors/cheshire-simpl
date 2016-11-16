@@ -8,7 +8,7 @@ mod parser;
 mod lexer;
 mod util;
 mod out;
-mod test;
+//mod test;
 
 use analyzer::*;
 use parser::Parser;

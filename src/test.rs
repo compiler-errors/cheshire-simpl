@@ -44,20 +44,12 @@ fn test_output(contents: &'static str) {
 // ---------------------- SUCCESS ----------------------- //
 
 #[test]
-fn testing_lexer() {
+fn testing_lexer() {}
 
-}
+fn testing_parser() {}
 
-fn testing_parser() {
+fn testing_analyzer() {}
 
-}
-
-fn testing_analyzer() {
-
-}
-
-fn testing_output() {
-
-}
+fn testing_output() {}
 
 // ---------------------- FAILURES ---------------------- //
