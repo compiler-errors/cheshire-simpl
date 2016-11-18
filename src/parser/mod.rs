@@ -136,6 +136,7 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::BOF).unwrap();
 
         let mut functions = Vec::new();
+        let mut export_fns = Vec::new();
         let mut objects = Vec::new();
 
         while !self.check_consume(Token::EOF) {
@@ -155,17 +156,37 @@ impl<'a> Parser<'a> {
                 }
 
                 objects.push(obj_result.unwrap());
+            } else if self.check(Token::Export) {
+                self.bump();
+                let fun_result = self.parse_function_signature();
+
+                if let Err(e) = fun_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                export_fns.push(fun_result.unwrap());
             } else {
                 // TODO: wonky
                 let err =
-                    self.error::<()>(format!("Expected `fn` or `object`, found `{}`",
+                    self.error::<()>(format!("Expected `fn`, `export` or `object`, found `{}`",
                                              self.next_token))
                         .unwrap_err();
                 report_parse_err_at(&self.lexer.file, err);
             }
         }
 
-        ParseFile::new(self.lexer.file, functions, objects)
+        ParseFile::new(self.lexer.file, functions, export_fns, objects)
+    }
+
+    fn parse_function_signature(&mut self) -> ParseResult<AstFnSignature> {
+        self.expect_consume(Token::Fn)?;
+        let pos = self.pos;
+        let fn_name = self.expect_get_identifier()?;
+        let parameter_list = self.parse_fn_parameter_list()?;
+        let return_type = self.try_parse_return_type()?;
+        self.expect_consume(Token::Dot);
+
+        Ok(AstFnSignature::new(pos, fn_name, parameter_list, return_type))
     }
 
     /// Parse a single function from the file.

@@ -19,6 +19,8 @@ pub struct Analyzer<'a> {
     pub fn_signatures: HashMap<String, FnSignature>,
     /// Map which associates a function name to its definition (block)
     pub fns: HashMap<String, AstFunction>, // TODO: probably just store the block itself...
+    /// List of functions which were export declared in the file
+    pub export_fns: Vec<FnSignature>,
 
     /// Keep track of being inside a "breakable" block
     pub breakable: bool,
@@ -77,6 +79,7 @@ impl<'a> Analyzer<'a> {
         Analyzer {
             fn_signatures: HashMap::new(),
             fns: HashMap::new(),
+            export_fns: Vec::new(),
             breakable: false,
             var_ids: Vec::new(),
             var_tys: HashMap::new(),
@@ -98,7 +101,7 @@ impl<'a> Analyzer<'a> {
 
     /// Analyze a file
     pub fn analyze_file(&mut self, f: ParseFile<'a>) {
-        let ParseFile { file, mut objects, functions } = f;
+        let ParseFile { file, mut objects, functions, export_fns } = f;
 
         self.file = Some(file); //TODO: this is wonky, fix?
 
@@ -114,7 +117,7 @@ impl<'a> Analyzer<'a> {
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
 
-        for fun in &functions {
+        for fun in export_fns {
             if self.fn_signatures.contains_key(&fun.name) {
                 self.err_at(fun.pos, format!("Duplicate function name `{}`", fun.name));
             }
@@ -129,12 +132,28 @@ impl<'a> Analyzer<'a> {
             self.fn_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
         }
 
+        for fun in &functions {
+            let sig = &fun.signature;
+            if self.fn_signatures.contains_key(&sig.name) {
+                self.err_at(sig.pos, format!("Duplicate function name `{}`", sig.name));
+            }
+
+            // Convert a  vec of AstType to Ty id by a mapping operation
+            let arg_tys: Vec<_> = sig.parameter_list
+                .iter()
+                .map(|p| self.initialize_ty(&p.ty))
+                .collect();
+            let return_ty = self.initialize_ty(&sig.return_type);
+            // And insert the function signature into a map associated with its name
+            self.fn_signatures.insert(sig.name.clone(), FnSignature::new(arg_tys, return_ty));
+        }
+
         // Let's use a drain so we can take ownership of the function
         for mut fun in functions {
             // First analyze the function
             self.analyze_function(&mut fun);
             // And then store it so we can emit it later
-            self.fns.insert(fun.name.clone(), fun);
+            self.fns.insert(fun.signature.name.clone(), fun);
         }
 
         for mut obj in objects {
@@ -150,14 +169,16 @@ impl<'a> Analyzer<'a> {
         // Store the first VarId associated with the function
         f.beginning_of_vars = self.var_new_id;
 
+        let sig = &mut f.signature;
+
         // Declare the parameters as variables
-        for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut f.parameter_list {
+        for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut sig.parameter_list {
             let param_ty = self.initialize_ty(ty);
             self.declare_variable(name, param_ty, pos);
         }
 
         // Save the return type
-        let return_ty = self.initialize_ty(&mut f.return_type);
+        let return_ty = self.initialize_ty(&mut sig.return_type);
         self.set_return_type(return_ty);
 
         // Analyze the function's body
@@ -426,22 +447,24 @@ impl<'a> Analyzer<'a> {
         }
 
         for ref fun in &obj.functions {
-            if member_signatures.contains_key(&fun.name) ||
-               static_signatures.contains_key(&fun.name) {
-                self.err_at(fun.pos,
-                            format!("Duplicate member function named `{}`", fun.name));
+            let sig = &fun.signature;
+
+            if member_signatures.contains_key(&sig.name) ||
+               static_signatures.contains_key(&sig.name) {
+                self.err_at(sig.pos,
+                            format!("Duplicate member function named `{}`", sig.name));
             }
 
-            let arg_tys: Vec<_> = fun.parameter_list
+            let arg_tys: Vec<_> = sig.parameter_list
                 .iter()
                 .map(|p| self.initialize_ty(&p.ty))
                 .collect();
-            let return_ty = self.initialize_ty(&fun.return_type);
+            let return_ty = self.initialize_ty(&sig.return_type);
 
-            if fun.has_self {
-                member_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
+            if sig.has_self {
+                member_signatures.insert(sig.name.clone(), FnSignature::new(arg_tys, return_ty));
             } else {
-                static_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
+                static_signatures.insert(sig.name.clone(), FnSignature::new(arg_tys, return_ty));
             }
         }
 
@@ -454,7 +477,9 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_object(&mut self, obj: &mut AstObject) {
         for f in &mut obj.functions {
-            if f.has_self {
+            let sig = &mut f.signature;
+
+            if sig.has_self {
                 self.self_id = obj.id;
             } else {
                 self.self_id = 0;
@@ -469,13 +494,13 @@ impl<'a> Analyzer<'a> {
             f.beginning_of_vars = self.var_new_id;
 
             // Declare the parameters as variables
-            for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut f.parameter_list {
+            for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut sig.parameter_list {
                 let param_ty = self.initialize_ty(ty);
                 self.declare_variable(name, param_ty, pos);
             }
 
             // Save the return type
-            let return_ty = self.initialize_ty(&mut f.return_type);
+            let return_ty = self.initialize_ty(&mut sig.return_type);
             self.set_return_type(return_ty);
 
             // Analyze the function's body

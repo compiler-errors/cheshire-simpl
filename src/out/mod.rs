@@ -32,6 +32,7 @@ impl Out {
     pub fn out(ana: Analyzer, out_file: File) {
         let Analyzer { fn_signatures,
                        fns,
+                       export_fns,
                        var_tys,
                        ty_map,
                        strings,
@@ -49,7 +50,7 @@ impl Out {
             file: out_file,
         };
 
-        writeln!(out.file,
+        writeln!(out.file, // TODO: make this not a thing...
                  "
         declare i8* @_cheshire_malloc(i64)
         declare i8* \
@@ -70,6 +71,13 @@ impl Out {
             out.output_object_skeleton(obj_skeleton);
         }
 
+        for (name, fn_sig) in &fn_signatures {
+            if !fns.contains_key(name) {
+                out.output_function_signature("declare", name, fn_sig);
+                writeln!(out.file, "");
+            }
+        }
+
         for fun in fns.keys() {
             let ref fun_body = fns[fun];
             let ref fun_sig = fn_signatures[fun];
@@ -88,15 +96,15 @@ impl Out {
 
     fn output_object(&mut self, obj: &AstObject, obj_skeleton: &AnalyzeObject) {
         for obj_fn in &obj.functions {
-            if obj_fn.has_self {
+            if obj_fn.signature.has_self {
                 self.output_object_function(obj.id,
                                             obj_fn,
-                                            &obj_skeleton.member_functions[&obj_fn.name],
+                                            &obj_skeleton.member_functions[&obj_fn.signature.name],
                                             true);
             } else {
                 self.output_object_function(obj.id,
                                             obj_fn,
-                                            &obj_skeleton.static_functions[&obj_fn.name],
+                                            &obj_skeleton.static_functions[&obj_fn.signature.name],
                                             false);
             }
         }
@@ -124,15 +132,57 @@ impl Out {
                               body: &AstObjectFunction,
                               sig: &FnSignature,
                               has_self: bool) {
+        self.output_object_function_signature("define",
+                                              &body.signature.name,
+                                              obj_id,
+                                              sig,
+                                              has_self);
+        writeln!(self.file, "{{");
+
+        // Declare the function's variables
+        for i in body.beginning_of_vars..body.end_of_vars {
+            let var_ty_str = self.ty_str(self.var_tys[&i]);
+            writeln!(self.file, "%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
+        }
+
+        for i in 0..(sig.params.len() as VarId) {
+            let var_ty_str = self.ty_str(sig.params[i as usize]);
+            writeln!(self.file,
+                     "store {} %arg{}, {}* %var{}",
+                     var_ty_str,
+                     i,
+                     var_ty_str,
+                     body.beginning_of_vars + i);
+        }
+
+        let returns = self.output_block(&body.definition, None);
         let ret_ty_str = self.ty_str(sig.return_ty);
-        let decorated_fn_name = &body.name; //TODO: Decorate
+        if !returns {
+            if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
+                writeln!(self.file, "ret {{}} undef");
+            } else {
+                writeln!(self.file, "ret {} zeroinitializer", ret_ty_str);
+            }
+        }
+
+        writeln!(self.file, "}}");
+    }
+
+    fn output_object_function_signature(&mut self,
+                                        decl: &str,
+                                        name: &String,
+                                        obj_id: ObjId,
+                                        sig: &FnSignature,
+                                        has_self: bool) {
+        let ret_ty_str = self.ty_str(sig.return_ty);
 
         // Output function signature
         write!(self.file,
-               "\n\ndefine {} @_object__{}__{}(",
+               "\n\n{} {} @_object__{}__{}(",
+               decl,
                ret_ty_str,
                self.obj_names[&obj_id],
-               decorated_fn_name);
+               name);
 
         if has_self {
             write!(self.file, "%object__{}* %self", self.obj_names[&obj_id]);
@@ -146,7 +196,12 @@ impl Out {
             }
             write!(self.file, "{} %arg{}", param_ty_str, i);
         }
-        writeln!(self.file, ") {{");
+        write!(self.file, ")");
+    }
+
+    fn output_function(&mut self, body: &AstFunction, sig: &FnSignature) {
+        self.output_function_signature("define", &body.signature.name, sig);
+        writeln!(self.file, "{{");
 
         // Declare the function's variables
         for i in body.beginning_of_vars..body.end_of_vars {
@@ -165,6 +220,7 @@ impl Out {
         }
 
         let returns = self.output_block(&body.definition, None);
+        let ret_ty_str = self.ty_str(sig.return_ty);
         if !returns {
             if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
                 writeln!(self.file, "ret {{}} undef");
@@ -176,15 +232,15 @@ impl Out {
         writeln!(self.file, "}}");
     }
 
-    fn output_function(&mut self, body: &AstFunction, sig: &FnSignature) {
+    fn output_function_signature(&mut self, decl: &str, name: &String, sig: &FnSignature) {
         let ret_ty_str = self.ty_str(sig.return_ty);
-        let decorated_fn_name = &body.name; //TODO: Decorate
 
         // Output function signature
         write!(self.file,
-               "\n\ndefine {} @{}(",
+               "\n{} {} @{}(",
+               decl,
                ret_ty_str,
-               decorated_fn_name);
+               name);
 
         // Output function args in signature
         for (i, ty) in sig.params.iter().enumerate() {
@@ -194,34 +250,7 @@ impl Out {
             }
             write!(self.file, "{} %arg{}", param_ty_str, i);
         }
-        writeln!(self.file, ") {{");
-
-        // Declare the function's variables
-        for i in body.beginning_of_vars..body.end_of_vars {
-            let var_ty_str = self.ty_str(self.var_tys[&i]);
-            writeln!(self.file, "%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
-        }
-
-        for i in 0..(sig.params.len() as VarId) {
-            let var_ty_str = self.ty_str(sig.params[i as usize]);
-            writeln!(self.file,
-                     "store {} %arg{}, {}* %var{}",
-                     var_ty_str,
-                     i,
-                     var_ty_str,
-                     body.beginning_of_vars + i);
-        }
-
-        let returns = self.output_block(&body.definition, None);
-        if !returns {
-            if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
-                writeln!(self.file, "ret {{}} undef");
-            } else {
-                writeln!(self.file, "ret {} zeroinitializer", ret_ty_str);
-            }
-        }
-
-        writeln!(self.file, "}}");
+        write!(self.file, ")");
     }
 
     fn output_block(&mut self, body: &AstBlock, cont_brk: Option<(BlkId, BlkId)>) -> bool {

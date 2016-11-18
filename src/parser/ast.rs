@@ -7,27 +7,27 @@ use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId, MemberId};
 pub struct ParseFile<'a> {
     pub file: FileReader<'a>,
     pub functions: Vec<AstFunction>,
+    pub export_fns: Vec<AstFnSignature>,
     pub objects: Vec<AstObject>,
 }
 
 impl<'a> ParseFile<'a> {
     pub fn new(file: FileReader<'a>,
                functions: Vec<AstFunction>,
+               export_fns: Vec<AstFnSignature>,
                objects: Vec<AstObject>)
                -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions,
+            export_fns: export_fns,
             objects: objects,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-/// A parsed function
-/// The variables associated with the function are given by
-/// [beginning_of_vars, end_of_vars).
-pub struct AstFunction {
+pub struct AstFnSignature {
     /// The beginning position of the function
     pub pos: usize,
     /// The simple name of the function
@@ -36,6 +36,28 @@ pub struct AstFunction {
     pub parameter_list: Vec<AstFnParameter>,
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
+}
+
+impl AstFnSignature {
+    pub fn new(pos: usize,
+               name: String,
+               parameter_list: Vec<AstFnParameter>,
+               return_type: AstType) -> AstFnSignature {
+       AstFnSignature {
+           pos: pos,
+           name: name,
+           parameter_list: parameter_list,
+           return_type: return_type,
+       }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+/// A parsed function
+/// The variables associated with the function are given by
+/// [beginning_of_vars, end_of_vars).
+pub struct AstFunction {
+    pub signature: AstFnSignature,
     /// The collection of statements associated with the function
     pub definition: AstBlock,
     /// The first variable ID associated with the function
@@ -52,10 +74,12 @@ impl AstFunction {
                definition: AstBlock)
                -> AstFunction {
         AstFunction {
-            pos: pos,
-            name: name,
-            parameter_list: parameter_list,
-            return_type: return_type,
+            signature: AstFnSignature {
+                pos: pos,
+                name: name,
+                parameter_list: parameter_list,
+                return_type: return_type,
+            },
             definition: definition,
             beginning_of_vars: 0,
             end_of_vars: 0,
@@ -636,7 +660,7 @@ impl AstObject {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct AstObjectFunction {
+pub struct AstObjectFnSignature {
     /// The beginning position of the function
     pub pos: usize,
     /// The simple name of the function
@@ -647,6 +671,27 @@ pub struct AstObjectFunction {
     pub parameter_list: Vec<AstFnParameter>,
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
+}
+
+impl AstObjectFnSignature {
+    pub fn new(pos: usize,
+               name: String,
+               has_self: bool,
+               parameter_list: Vec<AstFnParameter>,
+               return_type: AstType) -> AstObjectFnSignature {
+        AstObjectFnSignature {
+            pos: pos,
+            name: name,
+            has_self: has_self,
+            parameter_list: parameter_list,
+            return_type: return_type,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstObjectFunction {
+    pub signature: AstObjectFnSignature,
     /// The collection of statements associated with the function
     pub definition: AstBlock,
     /// The first variable ID associated with the function
@@ -664,11 +709,13 @@ impl AstObjectFunction {
                definition: AstBlock)
                -> AstObjectFunction {
         AstObjectFunction {
-            pos: pos,
-            name: name,
-            has_self: has_self,
-            parameter_list: parameter_list,
-            return_type: return_type,
+            signature: AstObjectFnSignature {
+                pos: pos,
+                name: name,
+                has_self: has_self,
+                parameter_list: parameter_list,
+                return_type: return_type,
+            },
             definition: definition,
             beginning_of_vars: 0,
             end_of_vars: 0,

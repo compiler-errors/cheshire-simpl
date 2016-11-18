@@ -19,23 +19,3 @@ fn main() -> UInt {
     c:increment().
     return c:increment().
 }
-
-fn is_large(c: Counter) -> Bool {
-    if c:i > 10u {
-        return true.
-    } else {
-        c:increment().
-        return false.
-    }
-}
-
-fn make_large(c: Counter) -> Bool {
-    if c:i > 10u {
-        return false.
-    } else {
-        while c:i < 20u {
-            c:increment().
-        }
-        return true.
-    }
-}

@@ -37,6 +37,7 @@ pub enum Token {
 
     /* Special keywords -- all are lowercase */
     Fn,
+    Export,
     Let,
     If,
     Else,
@@ -109,6 +110,7 @@ impl Display for Token {
             &Token::Modulo => write!(f, "%"),
             &Token::Caret => write!(f, "^"),
             &Token::Fn => write!(f, "fn"),
+            &Token::Export => write!(f, "export"),
             &Token::Let => write!(f, "let"),
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),
