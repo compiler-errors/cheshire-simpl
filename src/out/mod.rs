@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::fmt::{Display, Formatter, Result};
+use std::fs::{self, File};
+use std::io::Write;
 use std::mem::transmute;
 use analyzer::*;
 use parser::*;
@@ -22,10 +24,12 @@ pub struct Out {
     obj_names: HashMap<ObjId, String>,
     blk_new_id: BlkId,
     expr_new_id: ExprId,
+    file: File,
 }
 
+#[allow(unused_must_use)] //TODO: bad! bad bad bad
 impl Out {
-    pub fn out(ana: Analyzer) {
+    pub fn out(ana: Analyzer, out_file: File) {
         let Analyzer { fn_signatures,
                        fns,
                        var_tys,
@@ -42,10 +46,24 @@ impl Out {
             obj_names: obj_names,
             blk_new_id: 1,
             expr_new_id: 1,
+            file: out_file,
         };
 
+        writeln!(out.file,
+                 "
+        declare i8* @_cheshire_malloc(i64)
+        declare i8* \
+                  @_cheshire_malloc_array(i64, i64)
+        declare void @_cheshire_assert(i1)
+        \
+                  ");
+
         for (id, (string, len)) in strings {
-            println!("@str{} = constant [{} x i8] c\"{}\\00\"", id, len + 1, string);
+            writeln!(out.file,
+                     "@str{} = constant [{} x i8] c\"{}\\00\"",
+                     id,
+                     len + 1,
+                     string);
         }
 
         for (_, obj_skeleton) in &obj_skeletons {
@@ -64,64 +82,82 @@ impl Out {
             let ref obj_skeleton = obj_skeletons[obj_id];
             out.output_object(obj, obj_skeleton);
         }
+
+        out.file.sync_all();
     }
 
     fn output_object(&mut self, obj: &AstObject, obj_skeleton: &AnalyzeObject) {
         for obj_fn in &obj.functions {
             if obj_fn.has_self {
-                self.output_object_function(obj.id, obj_fn, &obj_skeleton.member_functions[&obj_fn.name], true);
+                self.output_object_function(obj.id,
+                                            obj_fn,
+                                            &obj_skeleton.member_functions[&obj_fn.name],
+                                            true);
             } else {
-                self.output_object_function(obj.id, obj_fn, &obj_skeleton.static_functions[&obj_fn.name], false);
+                self.output_object_function(obj.id,
+                                            obj_fn,
+                                            &obj_skeleton.static_functions[&obj_fn.name],
+                                            false);
             }
         }
     }
 
-    fn output_object_skeleton(&self, obj_skeleton: &AnalyzeObject) {
-        print!("%object__{} = type {{ ", obj_skeleton.name);
+    fn output_object_skeleton(&mut self, obj_skeleton: &AnalyzeObject) {
+        write!(self.file, "%object__{} = type {{ ", obj_skeleton.name);
 
         let mut first = true;
         for ty in &obj_skeleton.member_tys {
             if !first {
-                print!(", ");
+                write!(self.file, ", ");
             } else {
                 first = false;
             }
-            print!("{}", self.ty_str(*ty));
+            let mem_ty_str = self.ty_str(*ty);
+            write!(self.file, "{}", mem_ty_str);
         }
 
-        println!(" }}");
+        writeln!(self.file, " }}");
     }
 
-    fn output_object_function(&mut self, obj_id: ObjId, body: &AstObjectFunction, sig: &FnSignature, has_self: bool) {
+    fn output_object_function(&mut self,
+                              obj_id: ObjId,
+                              body: &AstObjectFunction,
+                              sig: &FnSignature,
+                              has_self: bool) {
         let ret_ty_str = self.ty_str(sig.return_ty);
         let decorated_fn_name = &body.name; //TODO: Decorate
 
         // Output function signature
-        print!("\n\ndefine {} @_object__{}__{}(", ret_ty_str, self.obj_names[&obj_id], decorated_fn_name);
+        write!(self.file,
+               "\n\ndefine {} @_object__{}__{}(",
+               ret_ty_str,
+               self.obj_names[&obj_id],
+               decorated_fn_name);
 
         if has_self {
-            print!("%object__{}* %self", self.obj_names[&obj_id]);
+            write!(self.file, "%object__{}* %self", self.obj_names[&obj_id]);
         }
 
         // Output function args in signature
         for (i, ty) in sig.params.iter().enumerate() {
             let param_ty_str = self.ty_str(*ty);
             if i != 0 || has_self {
-                print!(", ");
+                write!(self.file, ", ");
             }
-            print!("{} %arg{}", param_ty_str, i);
+            write!(self.file, "{} %arg{}", param_ty_str, i);
         }
-        println!(") {{");
+        writeln!(self.file, ") {{");
 
         // Declare the function's variables
         for i in body.beginning_of_vars..body.end_of_vars {
             let var_ty_str = self.ty_str(self.var_tys[&i]);
-            println!("%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
+            writeln!(self.file, "%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
         }
 
         for i in 0..(sig.params.len() as VarId) {
             let var_ty_str = self.ty_str(sig.params[i as usize]);
-            println!("store {} %arg{}, {}* %var{}",
+            writeln!(self.file,
+                     "store {} %arg{}, {}* %var{}",
                      var_ty_str,
                      i,
                      var_ty_str,
@@ -131,13 +167,13 @@ impl Out {
         let returns = self.output_block(&body.definition, None);
         if !returns {
             if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
-                println!("ret {{}} undef");
+                writeln!(self.file, "ret {{}} undef");
             } else {
-                println!("ret {} zeroinitializer", ret_ty_str);
+                writeln!(self.file, "ret {} zeroinitializer", ret_ty_str);
             }
         }
 
-        println!("}}");
+        writeln!(self.file, "}}");
     }
 
     fn output_function(&mut self, body: &AstFunction, sig: &FnSignature) {
@@ -145,27 +181,31 @@ impl Out {
         let decorated_fn_name = &body.name; //TODO: Decorate
 
         // Output function signature
-        print!("\n\ndefine {} @{}(", ret_ty_str, decorated_fn_name);
+        write!(self.file,
+               "\n\ndefine {} @{}(",
+               ret_ty_str,
+               decorated_fn_name);
 
         // Output function args in signature
         for (i, ty) in sig.params.iter().enumerate() {
             let param_ty_str = self.ty_str(*ty);
             if i != 0 {
-                print!(", ");
+                write!(self.file, ", ");
             }
-            print!("{} %arg{}", param_ty_str, i);
+            write!(self.file, "{} %arg{}", param_ty_str, i);
         }
-        println!(") {{");
+        writeln!(self.file, ") {{");
 
         // Declare the function's variables
         for i in body.beginning_of_vars..body.end_of_vars {
             let var_ty_str = self.ty_str(self.var_tys[&i]);
-            println!("%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
+            writeln!(self.file, "%var{} = alloca {}", i, var_ty_str); //TODO: store param name?
         }
 
         for i in 0..(sig.params.len() as VarId) {
             let var_ty_str = self.ty_str(sig.params[i as usize]);
-            println!("store {} %arg{}, {}* %var{}",
+            writeln!(self.file,
+                     "store {} %arg{}, {}* %var{}",
                      var_ty_str,
                      i,
                      var_ty_str,
@@ -175,13 +215,13 @@ impl Out {
         let returns = self.output_block(&body.definition, None);
         if !returns {
             if self.is_simple_ty(sig.return_ty, AnalyzeType::Nothing) {
-                println!("ret {{}} undef");
+                writeln!(self.file, "ret {{}} undef");
             } else {
-                println!("ret {} zeroinitializer", ret_ty_str);
+                writeln!(self.file, "ret {} zeroinitializer", ret_ty_str);
             }
         }
 
-        println!("}}");
+        writeln!(self.file, "}}");
     }
 
     fn output_block(&mut self, body: &AstBlock, cont_brk: Option<(BlkId, BlkId)>) -> bool {
@@ -196,7 +236,8 @@ impl Out {
                 &AstStatementData::Let { ref value, var_id, .. } => {
                     let value_ref = self.output_expression(value);
                     let var_ty_str = self.ty_str(value.ty);
-                    println!("store {} {}, {}* %var{}",
+                    writeln!(self.file,
+                             "store {} {}, {}* %var{}",
                              var_ty_str,
                              value_ref,
                              var_ty_str,
@@ -211,27 +252,28 @@ impl Out {
                     self.blk_new_id += 1;
 
                     let cond_ref = self.output_expression(condition);
-                    println!("br i1 {}, label %br{}, label %br{}",
+                    writeln!(self.file,
+                             "br i1 {}, label %br{}, label %br{}",
                              cond_ref,
                              true_blk,
                              false_blk);
 
-                    println!("br{}:", true_blk);
+                    writeln!(self.file, "br{}:", true_blk);
                     let true_returns = self.output_block(block, cont_brk);
                     if !true_returns {
-                        println!("br label %br{}", end_blk);
+                        writeln!(self.file, "br label %br{}", end_blk);
                     }
 
-                    println!("br{}:", false_blk);
+                    writeln!(self.file, "br{}:", false_blk);
                     let false_returns = self.output_block(else_block, cont_brk);
                     if !false_returns {
-                        println!("br label %br{}", end_blk);
+                        writeln!(self.file, "br label %br{}", end_blk);
                     }
 
                     if true_returns && false_returns {
                         return true;
                     } else {
-                        println!("br{}:", end_blk);
+                        writeln!(self.file, "br{}:", end_blk);
                     }
                 }
                 &AstStatementData::While { ref condition, ref block } => {
@@ -242,47 +284,50 @@ impl Out {
                     let end_blk = self.blk_new_id;
                     self.blk_new_id += 1;
 
-                    println!("br label %br{}", test_blk);
+                    writeln!(self.file, "br label %br{}", test_blk);
 
-                    println!("br{}:", test_blk);
+                    writeln!(self.file, "br{}:", test_blk);
                     let cond_ref = self.output_expression(condition);
-                    println!("br i1 {}, label %br{}, label %br{}",
+                    writeln!(self.file,
+                             "br i1 {}, label %br{}, label %br{}",
                              cond_ref,
                              true_blk,
                              end_blk);
 
-                    println!("br{}:", true_blk);
+                    writeln!(self.file, "br{}:", true_blk);
                     let while_returns = self.output_block(block, Some((test_blk, end_blk)));
                     if !while_returns {
-                        println!("br label %br{}", test_blk);
+                        writeln!(self.file, "br label %br{}", test_blk);
                     }
 
-                    println!("br{}:", end_blk);
+                    writeln!(self.file, "br{}:", end_blk);
                 }
                 &AstStatementData::Break => {
                     let break_block = cont_brk.unwrap().1;
-                    println!("br label %br{} ; break", break_block);
+                    writeln!(self.file, "br label %br{} ; break", break_block);
                     return true;
                 }
                 &AstStatementData::Continue => {
                     let continue_block = cont_brk.unwrap().0; //TODO: prettier
-                    println!("br label %br{} ; continue", continue_block);
+                    writeln!(self.file, "br label %br{} ; continue", continue_block);
                     return true;
                 }
                 &AstStatementData::Return { ref value } => {
                     let expr_ref = self.output_expression(value);
                     let expr_ty_str = self.ty_str(value.ty);
-                    println!("ret {} {}", expr_ty_str, expr_ref);
+                    writeln!(self.file, "ret {} {}", expr_ty_str, expr_ref);
                     return true;
                 }
                 &AstStatementData::Assert { ref condition } => {
                     let cond_ref = self.output_expression(condition);
-                    println!("call void @_cheshire_assert(i1 {})", cond_ref);
+                    writeln!(self.file, "call void @_cheshire_assert(i1 {})", cond_ref);
                 }
                 &AstStatementData::Expression { ref expression } => {
                     self.output_expression(expression);
                 }
-                &AstStatementData::NoOp => println!("call void @llvm.donothing() ; no-op"),
+                &AstStatementData::NoOp => {
+                    writeln!(self.file, "call void @llvm.donothing() ; no-op");
+                }
             }
         }
 
@@ -306,8 +351,12 @@ impl Out {
             &AstExpressionData::String { id, len, .. } => {
                 let ptr_id = self.expr_new_id;
                 self.expr_new_id += 1;
-                println!("%expr{} = getelementptr [{} x i8], [{} x i8]* @str{}, i64 0, i64 0",
-                         ptr_id, len + 1, len + 1, id);
+                writeln!(self.file,
+                         "%expr{} = getelementptr [{} x i8], [{} x i8]* @str{}, i64 0, i64 0",
+                         ptr_id,
+                         len + 1,
+                         len + 1,
+                         id);
                 ExprRef::ExprId(ptr_id)
             }
             &AstExpressionData::Int(ref s) => ExprRef::Constant(s.clone()),
@@ -324,7 +373,8 @@ impl Out {
                 let value_id = self.expr_new_id;
                 let var_ty = self.ty_str(expr.ty);
                 self.expr_new_id += 1;
-                println!("%expr{} = load {}, {}* %var{}",
+                writeln!(self.file,
+                         "%expr{} = load {}, {}* %var{}",
                          value_id,
                          var_ty,
                          var_ty,
@@ -339,7 +389,8 @@ impl Out {
                     let elem_ref = self.output_expression(elem);
                     let elem_ty_str = self.ty_str(elem.ty);
                     self.expr_new_id += 1;
-                    println!("%expr{} = insertvalue {} {}, {} {}, {}",
+                    writeln!(self.file,
+                             "%expr{} = insertvalue {} {}, {} {}, {}",
                              tuple_stage_id,
                              ty_str,
                              last_tuple,
@@ -359,33 +410,39 @@ impl Out {
                 self.expr_new_id += 5;
 
                 let inner_ty_str = self.array_ty_str(expr.ty);
-                println!("%expr{} = getelementptr {}, {}* null, i64 1",
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* null, i64 1",
                          sizeptr_id,
                          inner_ty_str,
                          inner_ty_str);
-                println!("%expr{} = ptrtoint {}* %expr{} to i64",
+                writeln!(self.file,
+                         "%expr{} = ptrtoint {}* %expr{} to i64",
                          size_id,
                          inner_ty_str,
                          sizeptr_id); //TODO: maybe i64 for size?
-                println!("%expr{} = call i8* @_cheshire_malloc_array(i64 %expr{}, i64 {})",
+                writeln!(self.file,
+                         "%expr{} = call i8* @_cheshire_malloc_array(i64 %expr{}, i64 {})",
                          arri8_id,
                          size_id,
                          elements.len());
-                println!("%expr{} = bitcast i8* %expr{} to {}*",
+                writeln!(self.file,
+                         "%expr{} = bitcast i8* %expr{} to {}*",
                          arr_id,
                          arri8_id,
                          inner_ty_str);
 
                 for (i, ref elem) in elements.iter().enumerate() {
                     let elem_ref = self.output_expression(elem);
-                    println!("%expr{}_elem{} = getelementptr {}, {}* %expr{}, i64 {}",
+                    writeln!(self.file,
+                             "%expr{}_elem{} = getelementptr {}, {}* %expr{}, i64 {}",
                              arr_id,
                              i,
                              inner_ty_str,
                              inner_ty_str,
                              arr_id,
                              i);
-                    println!("store {} {}, {}* %expr{}_elem{}",
+                    writeln!(self.file,
+                             "store {} {}, {}* %expr{}_elem{}",
                              inner_ty_str,
                              elem_ref,
                              inner_ty_str,
@@ -393,7 +450,8 @@ impl Out {
                              i);
                 }
 
-                println!("%expr{} = insertvalue {{i64, {}*}} {{i64 {}, {}* null}}, {}* %expr{}, 1",
+                writeln!(self.file,
+                         "%expr{} = insertvalue {{i64, {}*}} {{i64 {}, {}* null}}, {}* %expr{}, 1",
                          return_id,
                          inner_ty_str,
                          elements.len(),
@@ -411,18 +469,22 @@ impl Out {
                 self.expr_new_id += 5;
 
                 let obj_struct_str = self.struct_str(expr.ty);
-                println!("%expr{} = getelementptr {}, {}* null, i64 1",
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* null, i64 1",
                          sizeptr_id,
                          obj_struct_str,
                          obj_struct_str);
-                println!("%expr{} = ptrtoint {}* %expr{} to i64",
+                writeln!(self.file,
+                         "%expr{} = ptrtoint {}* %expr{} to i64",
                          size_id,
                          obj_struct_str,
                          sizeptr_id); //TODO: maybe i64 for size?
-                println!("%expr{} = call i8* @_cheshire_malloc(i64 %expr{})",
+                writeln!(self.file,
+                         "%expr{} = call i8* @_cheshire_malloc(i64 %expr{})",
                          obji8_id,
                          size_id);
-                println!("%expr{} = bitcast i8* %expr{} to {}*",
+                writeln!(self.file,
+                         "%expr{} = bitcast i8* %expr{} to {}*",
                          obj_id,
                          obji8_id,
                          obj_struct_str);
@@ -434,15 +496,19 @@ impl Out {
                 let ret_ty_str = self.ty_str(expr.ty);
                 let arg_refs: Vec<_> =
                     args.iter().map(|e| (e.ty, self.output_expression(e))).collect();
-                print!("%expr{} = call {} @{}(", call_id, ret_ty_str, name);
+                write!(self.file,
+                       "%expr{} = call {} @{}(",
+                       call_id,
+                       ret_ty_str,
+                       name);
                 for (i, (arg_ty, arg_ref)) in arg_refs.into_iter().enumerate() {
                     if i != 0 {
-                        print!(", ");
+                        write!(self.file, ", ");
                     }
                     let arg_ty_str = self.ty_str(arg_ty);
-                    print!("{} {}", arg_ty_str, arg_ref);
+                    write!(self.file, "{} {}", arg_ty_str, arg_ref);
                 }
-                println!(")");
+                writeln!(self.file, ")");
                 ExprRef::ExprId(call_id)
             }
             &AstExpressionData::Access { ref accessible, ref idx } => {
@@ -453,18 +519,21 @@ impl Out {
                 let value_id = self.expr_new_id + 2;
                 self.expr_new_id += 3;
                 let inner_ty_str = self.ty_str(expr.ty);
-                println!("%expr{} = extractvalue {{i64, {}*}} {}, 1",
+                writeln!(self.file,
+                         "%expr{} = extractvalue {{i64, {}*}} {}, 1",
                          arrptr_id,
                          inner_ty_str,
                          accessible_ref);
                 // TODO: Test
-                println!("%expr{} = getelementptr {}, {}* %expr{}, i64 {}",
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* %expr{}, i64 {}",
                          valueptr_id,
                          inner_ty_str,
                          inner_ty_str,
                          arrptr_id,
                          idx_ref);
-                println!("%expr{} = load {}, {}* %expr{}",
+                writeln!(self.file,
+                         "%expr{} = load {}, {}* %expr{}",
                          value_id,
                          inner_ty_str,
                          inner_ty_str,
@@ -476,7 +545,8 @@ impl Out {
                 let tuple_ty_str = self.ty_str(accessible.ty);
                 let element_id = self.expr_new_id;
                 self.expr_new_id += 1;
-                println!("%expr{} = extractvalue {} {}, {}",
+                writeln!(self.file,
+                         "%expr{} = extractvalue {} {}, {}",
                          element_id,
                          tuple_ty_str,
                          tuple_ref,
@@ -490,10 +560,19 @@ impl Out {
                 let mem_id = self.expr_new_id;
                 let loaded_id = self.expr_new_id + 1;
                 self.expr_new_id += 2;
-                println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
-                         mem_id, struct_str, struct_str, object_ref, mem_idx);
-                println!("%expr{} = load {}, {}* %expr{}",
-                         loaded_id, mem_ty_str, mem_ty_str, mem_id);
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
+                         mem_id,
+                         struct_str,
+                         struct_str,
+                         object_ref,
+                         mem_idx);
+                writeln!(self.file,
+                         "%expr{} = load {}, {}* %expr{}",
+                         loaded_id,
+                         mem_ty_str,
+                         mem_ty_str,
+                         mem_id);
                 ExprRef::ExprId(loaded_id)
             }
             &AstExpressionData::Not(ref expr) => {
@@ -501,7 +580,11 @@ impl Out {
                 let expr_ty = self.ty_str(expr.ty);
                 let not_id = self.expr_new_id;
                 self.expr_new_id += 1;
-                println!("%expr{} = xor {} {}, -1", not_id, expr_ty, expr_ref);
+                writeln!(self.file,
+                         "%expr{} = xor {} {}, -1",
+                         not_id,
+                         expr_ty,
+                         expr_ref);
                 ExprRef::ExprId(not_id)
             }
             &AstExpressionData::Negate(ref expr) => {
@@ -509,7 +592,11 @@ impl Out {
                 let expr_ty = self.ty_str(expr.ty);
                 let neg_id = self.expr_new_id;
                 self.expr_new_id += 1;
-                println!("%expr{} = sub {} 0, {}", neg_id, expr_ty, expr_ref);
+                writeln!(self.file,
+                         "%expr{} = sub {} 0, {}",
+                         neg_id,
+                         expr_ty,
+                         expr_ref);
                 ExprRef::ExprId(neg_id)
             }
             &AstExpressionData::ObjectCall { ref object, ref fn_name, ref args } => {
@@ -521,14 +608,19 @@ impl Out {
                 let arg_refs: Vec<_> =
                     args.iter().map(|ref e| (e.ty, self.output_expression(e))).collect();
                 let object_name = self.object_name(object.ty);
-                print!("%expr{} = call {} @_object__{}__{}(", call_id, ret_ty_str, object_name, fn_name);
-                print!("{} {}", object_ty, object_ref);
+                write!(self.file,
+                       "%expr{} = call {} @_object__{}__{}(",
+                       call_id,
+                       ret_ty_str,
+                       object_name,
+                       fn_name);
+                write!(self.file, "{} {}", object_ty, object_ref);
                 for (arg_ty, arg_ref) in arg_refs.into_iter() {
-                    print!(", ");
+                    write!(self.file, ", ");
                     let arg_ty_str = self.ty_str(arg_ty);
-                    print!("{} {}", arg_ty_str, arg_ref);
+                    write!(self.file, "{} {}", arg_ty_str, arg_ref);
                 }
-                println!(")");
+                writeln!(self.file, ")");
                 ExprRef::ExprId(call_id)
             }
             &AstExpressionData::StaticCall { ref obj_name, ref fn_name, ref args, .. } => {
@@ -537,15 +629,20 @@ impl Out {
                 let ret_ty_str = self.ty_str(expr.ty);
                 let arg_refs: Vec<_> =
                     args.iter().map(|e| (e.ty, self.output_expression(e))).collect();
-                print!("%expr{} = call {} @_object__{}__{}(", call_id, ret_ty_str, obj_name, fn_name);
+                write!(self.file,
+                       "%expr{} = call {} @_object__{}__{}(",
+                       call_id,
+                       ret_ty_str,
+                       obj_name,
+                       fn_name);
                 for (i, (arg_ty, arg_ref)) in arg_refs.into_iter().enumerate() {
                     if i != 0 {
-                        print!(", ");
+                        write!(self.file, ", ");
                     }
                     let arg_ty_str = self.ty_str(arg_ty);
-                    print!("{} {}", arg_ty_str, arg_ref);
+                    write!(self.file, "{} {}", arg_ty_str, arg_ref);
                 }
-                println!(")");
+                writeln!(self.file, ")");
                 ExprRef::ExprId(call_id)
             }
             &AstExpressionData::BinOp { kind, ref lhs, ref rhs } => {
@@ -553,7 +650,12 @@ impl Out {
                     let lhs_ref = self.output_expression_lval(lhs);
                     let rhs_ref = self.output_expression(rhs);
                     let expr_ty = self.ty_str(lhs.ty);
-                    println!("store {} {}, {}* {}", expr_ty, rhs_ref, expr_ty, lhs_ref);
+                    writeln!(self.file,
+                             "store {} {}, {}* {}",
+                             expr_ty,
+                             rhs_ref,
+                             expr_ty,
+                             lhs_ref);
                     rhs_ref
                 } else {
                     let lhs_ref = self.output_expression(lhs);
@@ -562,7 +664,8 @@ impl Out {
                     let op_str = self.op_string(kind, lhs.ty);
                     let out_id = self.expr_new_id;
                     self.expr_new_id += 1;
-                    println!("%expr{} = {} {} {}, {}",
+                    writeln!(self.file,
+                             "%expr{} = {} {} {}, {}",
                              out_id,
                              op_str,
                              op_ty,
@@ -584,12 +687,14 @@ impl Out {
                 let valueptr_id = self.expr_new_id + 1;
                 self.expr_new_id += 2;
                 let inner_ty_str = self.ty_str(expr.ty);
-                println!("%expr{} = extractvalue {{i64, {}*}} {}, 1",
+                writeln!(self.file,
+                         "%expr{} = extractvalue {{i64, {}*}} {}, 1",
                          arrptr_id,
                          inner_ty_str,
                          accessible_ref);
                 // TODO: Test
-                println!("%expr{} = getelementptr {}, {}* %expr{}, i64 {}",
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* %expr{}, i64 {}",
                          valueptr_id,
                          inner_ty_str,
                          inner_ty_str,
@@ -602,7 +707,8 @@ impl Out {
                 let tuple_ty_str = self.ty_str(accessible.ty);
                 let element_id = self.expr_new_id;
                 self.expr_new_id += 1;
-                println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
                          element_id,
                          tuple_ty_str,
                          tuple_ty_str,
@@ -615,8 +721,13 @@ impl Out {
                 let struct_str = self.struct_str(object.ty); // Just the plain @object_NAME
                 let mem_id = self.expr_new_id;
                 self.expr_new_id += 1;
-                println!("%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
-                         mem_id, struct_str, struct_str, object_ref, mem_idx);
+                writeln!(self.file,
+                         "%expr{} = getelementptr {}, {}* {}, i64 0, i32 {}",
+                         mem_id,
+                         struct_str,
+                         struct_str,
+                         object_ref,
+                         mem_idx);
                 ExprRef::ExprId(mem_id)
             }
             _ => unreachable!(),
@@ -728,11 +839,11 @@ impl Out {
         }
     }
 
-    fn object_name(&self, ty: Ty) -> &String {
+    fn object_name(&self, ty: Ty) -> String {
         match &self.ty_map[&ty] {
             &AnalyzeType::Same(same_ty) => self.object_name(same_ty),
-            &AnalyzeType::Object(obj_id) => &self.obj_names[&obj_id],
-            _ => unreachable!()
+            &AnalyzeType::Object(obj_id) => self.obj_names[&obj_id].clone(),
+            _ => unreachable!(),
         }
     }
 
@@ -740,7 +851,7 @@ impl Out {
         match &self.ty_map[&ty] {
             &AnalyzeType::Same(same_ty) => self.struct_str(same_ty),
             &AnalyzeType::Object(obj_id) => format!("%object__{}", self.obj_names[&obj_id]),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 

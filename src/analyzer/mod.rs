@@ -116,8 +116,7 @@ impl<'a> Analyzer<'a> {
 
         for fun in &functions {
             if self.fn_signatures.contains_key(&fun.name) {
-                self.report_analyze_err_at(fun.pos,
-                                           format!("Duplicate function name `{}`", fun.name));
+                self.err_at(fun.pos, format!("Duplicate function name `{}`", fun.name));
             }
 
             // Convert a  vec of AstType to Ty id by a mapping operation
@@ -225,9 +224,8 @@ impl<'a> Analyzer<'a> {
             &mut AstStatementData::Break |
             &mut AstStatementData::Continue => {
                 if !self.breakable {
-                    self.report_analyze_err_at(stmt.pos,
-                                               format!("Cannot `break` or `continue` outside of \
-                                                        a `while`"))
+                    self.err_at(stmt.pos,
+                                format!("Cannot `break` or `continue` outside of a `while`"))
                 }
             }
             &mut AstStatementData::NoOp => {}
@@ -258,7 +256,10 @@ impl<'a> Analyzer<'a> {
             &mut AstExpressionData::Null => self.new_null_infer_ty(),
             &mut AstExpressionData::SelfRef => {
                 if self.self_id == 0 {
-                    self.report_analyze_err_at(pos, "`self` can only be used inside a object member function definition".to_string());
+                    self.err_at(pos,
+                                "`self` can only be used inside a object member function \
+                                 definition"
+                                    .to_string());
                 }
                 let self_id = self.self_id; // Non-lexical borrow, please
                 self.make_object_ty(self_id)
@@ -321,7 +322,9 @@ impl<'a> Analyzer<'a> {
                 let tuple_ty = self.typecheck_expr(accessible);
                 self.extract_tuple_inner_ty(tuple_ty, idx, accessible.pos)
             }
-            &mut AstExpressionData::ObjectAccess { ref mut object, ref mem_name, ref mut mem_idx } => {
+            &mut AstExpressionData::ObjectAccess { ref mut object,
+                                                   ref mem_name,
+                                                   ref mut mem_idx } => {
                 let obj_ty = self.typecheck_expr(object);
                 *mem_idx = self.extract_object_member_idx(obj_ty, mem_name, pos);
                 self.extract_object_member_ty(obj_ty, mem_name, pos)
@@ -331,9 +334,8 @@ impl<'a> Analyzer<'a> {
                 if self.is_integral_ty(ty) || self.is_boolean_ty(ty) {
                     ty
                 } else {
-                    self.report_analyze_err_at(expr.pos,
-                                               format!("Expected sub-expression of type `Int`, \
-                                                        `UInt` or `Bool`"));
+                    self.err_at(expr.pos,
+                                format!("Expected sub-expression of type `Int`, `UInt` or `Bool`"));
                 }
             }
             &mut AstExpressionData::Negate(ref mut expr) => {
@@ -341,8 +343,7 @@ impl<'a> Analyzer<'a> {
                 if self.is_numeric_ty(ty) {
                     ty
                 } else {
-                    self.report_analyze_err_at(expr.pos,
-                                               format!("Expected numeric sub-expression"));
+                    self.err_at(expr.pos, format!("Expected numeric sub-expression"));
                 }
             }
             &mut AstExpressionData::Allocate { ref object } => {
@@ -357,32 +358,27 @@ impl<'a> Analyzer<'a> {
                     BinOpKind::Multiply | BinOpKind::Divide | BinOpKind::Modulo |
                     BinOpKind::Add | BinOpKind::Subtract => {
                         if !self.is_numeric_ty(lhs_ty) {
-                            self.report_analyze_err_at(pos,
-                                                       format!("Expected numeric sub-expression"));
+                            self.err_at(pos, format!("Expected numeric sub-expression"));
                         }
                         lhs_ty
                     }
                     BinOpKind::ShiftLeft | BinOpKind::ShiftRight => {
                         if !self.is_integral_ty(lhs_ty) {
-                            self.report_analyze_err_at(pos,
-                                                       format!("Expected integer sub-expression"));
+                            self.err_at(pos, format!("Expected integer sub-expression"));
                         }
                         lhs_ty
                     }
                     BinOpKind::Greater | BinOpKind::Less | BinOpKind::GreaterEqual |
                     BinOpKind::LessEqual => {
                         if !self.is_numeric_ty(lhs_ty) {
-                            self.report_analyze_err_at(pos,
-                                                       format!("Expected numeric sub-expression"));
+                            self.err_at(pos, format!("Expected numeric sub-expression"));
                         }
                         TY_BOOLEAN
                     }
                     BinOpKind::Xor | BinOpKind::And | BinOpKind::Or => {
                         // TODO: also numeric not float
                         if !self.is_boolean_ty(lhs_ty) {
-                            self.report_analyze_err_at(pos,
-                                                       format!("Expected sub-expression of type \
-                                                                `Bool`"));
+                            self.err_at(pos, format!("Expected sub-expression of type `Bool`"));
                         }
                         lhs_ty
                     }
@@ -399,11 +395,10 @@ impl<'a> Analyzer<'a> {
     /// and returns the function's return type.
     fn typecheck_function_call(&mut self, fn_sig: FnSignature, args: Vec<Ty>, pos: usize) -> Ty {
         if fn_sig.params.len() != args.len() {
-            self.report_analyze_err_at(pos,
-                                       format!("Expected {} arguments, found {} arguments \
-                                                instead",
-                                               fn_sig.params.len(),
-                                               args.len()));
+            self.err_at(pos,
+                        format!("Expected {} arguments, found {} arguments instead",
+                                fn_sig.params.len(),
+                                args.len()));
         }
 
         for i in 0..args.len() {
@@ -421,8 +416,7 @@ impl<'a> Analyzer<'a> {
 
         for ref mem in &obj.members {
             if member_ids.contains_key(&mem.name) {
-                self.report_analyze_err_at(mem.pos,
-                                           format!("Duplicate member named `{}`", mem.name));
+                self.err_at(mem.pos, format!("Duplicate member named `{}`", mem.name));
             }
 
             let mem_id = member_tys.len() as u32;
@@ -434,9 +428,8 @@ impl<'a> Analyzer<'a> {
         for ref fun in &obj.functions {
             if member_signatures.contains_key(&fun.name) ||
                static_signatures.contains_key(&fun.name) {
-                self.report_analyze_err_at(fun.pos,
-                                           format!("Duplicate member function named `{}`",
-                                                   fun.name));
+                self.err_at(fun.pos,
+                            format!("Duplicate member function named `{}`", fun.name));
             }
 
             let arg_tys: Vec<_> = fun.parameter_list
@@ -452,7 +445,11 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        AnalyzeObject::new(obj.name.clone(), member_ids, member_tys, member_signatures, static_signatures)
+        AnalyzeObject::new(obj.name.clone(),
+                           member_ids,
+                           member_tys,
+                           member_signatures,
+                           static_signatures)
     }
 
     fn analyze_object(&mut self, obj: &mut AstObject) {
@@ -464,7 +461,7 @@ impl<'a> Analyzer<'a> {
             }
 
             // -- COPIED FROM analyze_function -- //
-            //TODO: try to union these??
+            // TODO: try to union these??
 
             // Raise a scope level
             self.raise();
@@ -494,33 +491,45 @@ impl<'a> Analyzer<'a> {
 
     fn get_object_id(&self, object_name: &String, pos: usize) -> ObjId {
         if !self.obj_ids.contains_key(object_name) {
-            self.report_analyze_err_at(pos, format!("Cannot find object by name `{}`", object_name));
+            self.err_at(pos, format!("Cannot find object by name `{}`", object_name));
         }
 
         self.obj_ids[object_name]
     }
 
-    fn get_member_function_signature(&self, obj_ty: Ty, fn_name: &String, pos: usize) -> FnSignature {
+    fn get_member_function_signature(&self,
+                                     obj_ty: Ty,
+                                     fn_name: &String,
+                                     pos: usize)
+                                     -> FnSignature {
         match self.real_ty(obj_ty) {
             &AnalyzeType::Object(obj_id) => {
                 let obj_skeleton = &self.obj_skeletons[&obj_id];
 
                 if !obj_skeleton.member_functions.contains_key(fn_name) {
-                    self.report_analyze_err_at(pos, format!("Object `{}` has no member function `{}`", obj_skeleton.name, fn_name));
+                    self.err_at(pos,
+                                format!("Object `{}` has no member function `{}`",
+                                        obj_skeleton.name,
+                                        fn_name));
                 }
 
                 obj_skeleton.member_functions[fn_name].clone()
             }
-            _ => self.report_analyze_err_at(pos, format!("Cannot determine type for object call"))
+            _ => self.err_at(pos, format!("Cannot determine type for object call")),
         }
     }
 
-    fn get_static_function_signature(&self, obj_name: &String, fn_name: &String, pos: usize) -> FnSignature {
+    fn get_static_function_signature(&self,
+                                     obj_name: &String,
+                                     fn_name: &String,
+                                     pos: usize)
+                                     -> FnSignature {
         let obj_id = self.get_object_id(obj_name, pos);
         let obj_skeleton = &self.obj_skeletons[&obj_id];
 
         if !obj_skeleton.static_functions.contains_key(fn_name) {
-            self.report_analyze_err_at(pos, format!("Object `{}` has no static function `{}`", obj_name, fn_name));
+            self.err_at(pos,
+                        format!("Object `{}` has no static function `{}`", obj_name, fn_name));
         }
 
         obj_skeleton.static_functions[fn_name].clone()
@@ -543,10 +552,8 @@ impl<'a> Analyzer<'a> {
         self.var_new_id += 1;
 
         if self.var_ids.last_mut().unwrap().contains_key(name) {
-            self.report_analyze_err_at(pos,
-                                       format!("Variable with name `{}` already declared in \
-                                                scope",
-                                               name));
+            self.err_at(pos,
+                        format!("Variable with name `{}` already declared in scope", name));
         }
 
         self.var_ids.last_mut().unwrap().insert(name.clone(), id);
@@ -563,8 +570,8 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        self.report_analyze_err_at(pos,
-                                   format!("Variable with name `{}` not declared in scope", name));
+        self.err_at(pos,
+                    format!("Variable with name `{}` not declared in scope", name));
     }
 
     /// Get the Ty associated with a VarId
@@ -575,7 +582,7 @@ impl<'a> Analyzer<'a> {
     /// Get a function signature
     fn get_function_signature(&mut self, name: &String, pos: usize) -> FnSignature {
         if !self.fn_signatures.contains_key(name) {
-            self.report_analyze_err_at(pos, format!("Function with name `{}` not declared", name));
+            self.err_at(pos, format!("Function with name `{}` not declared", name));
         }
 
         self.fn_signatures.get(name).unwrap().clone() //TODO: add error panic!("")
@@ -615,7 +622,7 @@ impl<'a> Analyzer<'a> {
             }
             &AstType::Object(ref object, pos) => {
                 if !self.obj_ids.contains_key(object) {
-                    self.report_analyze_err_at(pos, format!("Unknown object by name `{}`", object));
+                    self.err_at(pos, format!("Unknown object by name `{}`", object));
                 }
 
                 AnalyzeType::Object(self.obj_ids[object])
@@ -678,7 +685,7 @@ impl<'a> Analyzer<'a> {
             return;
         }
 
-        //TODO: use real_ty()
+        // TODO: use real_ty()
 
         // If ty1 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
@@ -703,17 +710,17 @@ impl<'a> Analyzer<'a> {
             // NullInfer can union with any *nullable* type
             (AnalyzeType::NullInfer, t) => {
                 if !self.is_nullable(&t) {
-                    self.report_analyze_err_at(pos,
-                                               format!("`null` may only be assigned to types \
-                                                        which are nullable."));
+                    self.err_at(pos,
+                                format!("`null` may only be assigned to types which are \
+                                         nullable."));
                 }
                 self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
             }
             (t, AnalyzeType::NullInfer) => {
                 if !self.is_nullable(&t) {
-                    self.report_analyze_err_at(pos,
-                                               format!("`null` may only be assigned to types \
-                                                        which are nullable."));
+                    self.err_at(pos,
+                                format!("`null` may only be assigned to types which are \
+                                         nullable."));
                 }
                 self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
             }
@@ -730,9 +737,8 @@ impl<'a> Analyzer<'a> {
             // Tuples union if they're the same length and the sub-types union as well.
             (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
                 if ty1_tys.len() != ty2_tys.len() {
-                    self.report_analyze_err_at(pos,
-                                               format!("Cannot consolidate tuple types of \
-                                                        varying lengths"));
+                    self.err_at(pos,
+                                format!("Cannot consolidate tuple types of varying lengths"));
                 }
                 for i in 0..ty1_tys.len() {
                     self.union_ty(ty1_tys[i], ty2_tys[i], pos);
@@ -745,18 +751,18 @@ impl<'a> Analyzer<'a> {
             // Object types
             (AnalyzeType::Object(obj_ty1), AnalyzeType::Object(obj_ty2)) => {
                 if obj_ty1 != obj_ty2 {
-                    self.report_analyze_err_at(pos, format!("Differing object types when consolidating"));
+                    self.err_at(pos, format!("Differing object types when consolidating"));
                 }
             }
             // Otherwise, welp!
-            _ => self.report_analyze_err_at(pos, format!("Cannot consolidate types")),
+            _ => self.err_at(pos, format!("Cannot consolidate types")),
         }
     }
 
     fn real_ty(&self, ty: Ty) -> &AnalyzeType {
         match &self.ty_map[&ty] {
             &AnalyzeType::Same(same_ty) => self.real_ty(same_ty),
-            t => t
+            t => t,
         }
     }
 
@@ -774,7 +780,7 @@ impl<'a> Analyzer<'a> {
     fn extract_array_inner_ty(&self, array_ty: Ty, pos: usize) -> Ty {
         match self.real_ty(array_ty) {
             &AnalyzeType::Array(inner_ty) => inner_ty,
-            _ => self.report_analyze_err_at(pos, format!("Cannot extract array type")),
+            _ => self.err_at(pos, format!("Cannot extract array type")),
         }
     }
 
@@ -783,12 +789,12 @@ impl<'a> Analyzer<'a> {
         match self.real_ty(tuple_ty) {
             &AnalyzeType::Tuple(ref tys) => {
                 if tys.len() <= (idx as usize) {
-                    self.report_analyze_err_at(pos, format!("Tuple access out of bounds"))
+                    self.err_at(pos, format!("Tuple access out of bounds"))
                 } else {
                     tys[idx as usize]
                 }
             }
-            _ => self.report_analyze_err_at(pos, format!("Cannot extract tuple type")),
+            _ => self.err_at(pos, format!("Cannot extract tuple type")),
         }
     }
 
@@ -798,12 +804,16 @@ impl<'a> Analyzer<'a> {
                 let obj_skeleton = &self.obj_skeletons[&obj_id];
 
                 if !obj_skeleton.member_ids.contains_key(member) {
-                    self.report_analyze_err_at(pos, format!("Cannot access object member by name `{}`", member));
+                    self.err_at(pos,
+                                format!("Cannot access object member by name `{}`", member));
                 }
 
                 obj_skeleton.member_tys[obj_skeleton.member_ids[member] as usize] //TODO: wonky
             }
-            _ => self.report_analyze_err_at(pos, format!("Cannot determine object type of left-hand side")),
+            _ => {
+                self.err_at(pos,
+                            format!("Cannot determine object type of left-hand side"))
+            }
         }
     }
 
@@ -813,12 +823,16 @@ impl<'a> Analyzer<'a> {
                 let obj_skeleton = &self.obj_skeletons[&obj_id];
 
                 if !obj_skeleton.member_ids.contains_key(member) {
-                    self.report_analyze_err_at(pos, format!("Cannot access object member by name `{}`", member));
+                    self.err_at(pos,
+                                format!("Cannot access object member by name `{}`", member));
                 }
 
                 obj_skeleton.member_ids[member]
             }
-            _ => self.report_analyze_err_at(pos, format!("Cannot determine object type of left-hand side")),
+            _ => {
+                self.err_at(pos,
+                            format!("Cannot determine object type of left-hand side"))
+            }
         }
     }
 
@@ -831,19 +845,22 @@ impl<'a> Analyzer<'a> {
 
     fn is_integral_ty(&self, ty: Ty) -> bool {
         match self.real_ty(ty) {
-            &AnalyzeType::Int | &AnalyzeType::UInt => true,
+            &AnalyzeType::Int |
+            &AnalyzeType::UInt => true,
             _ => false,
         }
     }
 
     fn is_numeric_ty(&self, ty: Ty) -> bool {
         match self.real_ty(ty) {
-            &AnalyzeType::Int | &AnalyzeType::UInt | &AnalyzeType::Float => true,
+            &AnalyzeType::Int |
+            &AnalyzeType::UInt |
+            &AnalyzeType::Float => true,
             _ => false,
         }
     }
 
-    fn report_analyze_err_at(&self, pos: usize, err: String) -> ! {
+    fn err_at(&self, pos: usize, err: String) -> ! {
         let fr = self.file.as_ref().unwrap();
         let (line, col) = fr.get_row_col(pos);
         let line_str = fr.get_line_from_pos(pos);

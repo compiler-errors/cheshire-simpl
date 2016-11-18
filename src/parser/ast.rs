@@ -95,7 +95,7 @@ pub enum AstType {
     String,
     Array { ty: Box<AstType> },
     Tuple { types: Vec<AstType> },
-    Object(String, usize) //TODO: pos is tacked on hackily...
+    Object(String, usize), // TODO: pos is tacked on hackily...
 }
 
 impl AstType {
@@ -333,9 +333,7 @@ pub enum AstExpressionData {
         mem_idx: MemberId,
     },
 
-    Allocate {
-        object: String
-    },
+    Allocate { object: String },
 
     Not(SubExpression),
     Negate(SubExpression),
@@ -463,7 +461,8 @@ impl AstExpression {
     pub fn object_call(object: AstExpression,
                        fn_name: String,
                        args: Vec<AstExpression>,
-                       pos: usize) -> AstExpression {
+                       pos: usize)
+                       -> AstExpression {
         AstExpression {
             expr: AstExpressionData::ObjectCall {
                 object: Box::new(object),
@@ -478,7 +477,8 @@ impl AstExpression {
     pub fn static_call(obj_name: String,
                        fn_name: String,
                        args: Vec<AstExpression>,
-                       pos: usize) -> AstExpression {
+                       pos: usize)
+                       -> AstExpression {
         AstExpression {
             expr: AstExpressionData::StaticCall {
                 obj_name: obj_name,
@@ -526,9 +526,7 @@ impl AstExpression {
 
     pub fn allocate(object: String, pos: usize) -> AstExpression {
         AstExpression {
-            expr: AstExpressionData::Allocate {
-                object: object
-            },
+            expr: AstExpressionData::Allocate { object: object },
             ty: 0,
             pos: pos,
         }

@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Michael Goulet <michael@errs.io>"]
 
 [dependencies]
+getopts = "0.2"
 
 [[bin]]
 name="cheshire"

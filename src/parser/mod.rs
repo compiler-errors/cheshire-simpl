@@ -425,7 +425,7 @@ impl<'a> Parser<'a> {
                 }
             }
             &AstExpressionData::Call { .. } |
-            &AstExpressionData::ObjectCall { .. } => { }
+            &AstExpressionData::ObjectCall { .. } => {}
             _ => {
                 return self.error_at(expr.pos, format!("Expected expression statement."));
             }
@@ -515,7 +515,9 @@ impl<'a> Parser<'a> {
                         lhs = AstExpression::tuple_access(lhs, idx, pos);
                         continue;
                     } else {
-                        self.error(format!("Expected either number or identifier after `:`, found {}", self.next_token))?;
+                        self.error(format!("Expected either number or identifier after `:`, \
+                                            found {}",
+                                           self.next_token))?;
                     }
                 }
                 _ => {}
@@ -614,8 +616,11 @@ impl<'a> Parser<'a> {
                             Ok(AstExpression::identifier(identifier.clone(), pos))
                         }
                     }
-                    _ => self.error(format!("Expected literal, identifier, `new` or `(`, found `{}`",
-                                            self.next_token))
+                    _ => {
+                        self.error(format!("Expected literal, identifier, `new` or `(`, found \
+                                            `{}`",
+                                           self.next_token))
+                    }
                 }
             }
         }
@@ -793,8 +798,8 @@ fn get_kind(t: Token) -> BinOpKind {
         Token::Minus => BinOpKind::Subtract,
         Token::ShiftLeft => BinOpKind::ShiftLeft,
         Token::ShiftRight => BinOpKind::ShiftRight,
-        Token::Lt => BinOpKind::Greater,
-        Token::Gt => BinOpKind::Less,
+        Token::Lt => BinOpKind::Less,
+        Token::Gt => BinOpKind::Greater,
         Token::GreaterEqual => BinOpKind::GreaterEqual,
         Token::LessEqual => BinOpKind::LessEqual,
         Token::NotEquals => BinOpKind::NotEqual,
