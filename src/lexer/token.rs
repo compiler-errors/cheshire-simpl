@@ -39,6 +39,9 @@ pub enum Token {
     Fn,
     Export,
     Let,
+    Trait,
+    Impl,
+
     If,
     Else,
     While,
@@ -111,6 +114,8 @@ impl Display for Token {
             &Token::Caret => write!(f, "^"),
             &Token::Fn => write!(f, "fn"),
             &Token::Export => write!(f, "export"),
+            &Token::Trait => write!(f, "trait"),
+            &Token::Impl => write!(f, "impl"),
             &Token::Let => write!(f, "let"),
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),

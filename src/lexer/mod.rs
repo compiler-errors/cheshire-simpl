@@ -336,6 +336,9 @@ impl<'a> Lexer<'a> {
         Ok(match string.as_ref() {
             "fn" => Token::Fn,
             "export" => Token::Export,
+            "trait" => Token::Trait,
+            "impl" => Token::Impl,
+            
             "let" => Token::Let,
             "if" => Token::If,
             "else" => Token::Else,

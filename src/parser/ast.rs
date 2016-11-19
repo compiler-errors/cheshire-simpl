@@ -119,7 +119,7 @@ pub enum AstType {
     String,
     Array { ty: Box<AstType> },
     Tuple { types: Vec<AstType> },
-    Object(String, usize), // TODO: pos is tacked on hackily...
+    Identifier(String, usize), // TODO: pos is tacked on hackily...
 }
 
 impl AstType {
@@ -300,8 +300,6 @@ pub struct AstExpression {
     pub ty: Ty,
     pub pos: usize,
 }
-
-type SubExpression = Box<AstExpression>;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum AstExpressionData {
@@ -740,4 +738,9 @@ impl AstObjectMember {
             pos: pos,
         }
     }
+}
+
+pub struct AstTrait {
+    pub name: String,
+    pub functions: Vec<AstObjectFnSignature>,
 }

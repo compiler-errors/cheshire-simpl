@@ -184,7 +184,7 @@ impl<'a> Parser<'a> {
         let fn_name = self.expect_get_identifier()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
-        self.expect_consume(Token::Dot);
+        self.expect_consume(Token::Dot)?;
 
         Ok(AstFnSignature::new(pos, fn_name, parameter_list, return_type))
     }

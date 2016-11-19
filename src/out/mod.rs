@@ -490,7 +490,7 @@ impl Out {
 
                 ExprRef::ExprId(return_id)
             }
-            &AstExpressionData::Allocate { ref object } => {
+            &AstExpressionData::Allocate { .. } => {
                 let sizeptr_id = self.expr_new_id + 0; // The pointer signifying the size of T
                 let size_id = self.expr_new_id + 1; // The integer signifying the size of T
                 let obji8_id = self.expr_new_id + 2; // The T* array malloc'ed as i8* pointer
