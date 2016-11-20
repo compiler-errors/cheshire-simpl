@@ -200,11 +200,13 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::Fn)?;
         let pos = self.pos;
         let fn_name = self.expect_get_identifier()?;
+        let generics = self.try_parse_decl_generics()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
+        let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::Dot)?;
 
-        Ok(AstFnSignature::new(pos, fn_name, parameter_list, return_type))
+        Ok(AstFnSignature::new(pos, fn_name, generics, parameter_list, return_type))
     }
 
     /// Parse a single function from the file.
@@ -212,8 +214,10 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::Fn)?;
         let pos = self.pos;
         let fn_name = self.expect_get_identifier()?;
+        let generics = self.try_parse_decl_generics()?;
         let parameter_list = self.parse_fn_parameter_list()?;
         let return_type = self.try_parse_return_type()?;
+        let restrictions = self.try_parse_restrictions()?;
         let definition = self.parse_block()?;
 
         Ok(AstFunction::new(pos, fn_name, parameter_list, return_type, definition))
