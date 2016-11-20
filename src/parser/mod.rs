@@ -165,6 +165,24 @@ impl<'a> Parser<'a> {
                 }
 
                 export_fns.push(fun_result.unwrap());
+            } else if self.check(Token::Trait) {
+                self.bump();
+                let trait_result = self.parse_trait();
+
+                if let Err(e) = trait_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                traits.push(trait_result.unwrap());
+            } else if self.check(Token::Impl) {
+                self.bump();
+                let impl_result = self.parse_impl();
+
+                if let Err(e) = impl_result {
+                    report_parse_err_at(&self.lexer.file, e);
+                }
+
+                impls.push(impl_result.unwrap());
             } else {
                 // TODO: wonky
                 let err =
@@ -779,6 +797,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_object_function(&mut self) -> ParseResult<AstObjectFunction> {
+        let sig = self.parse_object_fn_signature()?;
+        let definition = self.parse_block()?;
+
+        Ok(AstObjectFunction::new(sig, definition))
+    }
+
+    fn parse_object_fn_signature(&mut self) -> ParseResult<AstObjectFnSignature> {
         let pos = self.pos;
         self.expect_consume(Token::Fn)?;
         let name = self.expect_get_identifier()?;
@@ -804,9 +829,39 @@ impl<'a> Parser<'a> {
         }
 
         let return_type = self.try_parse_return_type()?;
-        let definition = self.parse_block()?;
+        Ok(AstObjectFnSignature::new(pos, name, has_self, parameters, return_type))
+    }
 
-        Ok(AstObjectFunction::new(pos, name, has_self, parameters, return_type, definition))
+    fn parse_trait(&mut self) -> ParseResult<AstTrait> {
+        self.expect_consume(Token::Trait)?;
+        let name = self.expect_get_identifier()?;
+        let generics = self.parse_decl_generics()?;
+        self.expect_consume(Token::LBrace)?;
+
+        let mut fns = Vec::new();
+        while !self.check_consume(Token::RBrace) {
+            let fun = self.parse_object_fn_signature()?;
+            self.expect_consume(Token::Dot)?;
+            fns.push(fun);
+        }
+
+        Ok(AstTrait::new(pos, name, generics, fns))
+    }
+
+    fn parse_impl(&mut self) -> ParseResult<AstImpl> {
+        self.expect_consume(Token::Impl)?;
+        let impl_generics = self.parse_decl_generics()?;
+        let trait_ty = self.parse_object_type()?;
+        self.expect_consume(Token::For)?;
+        let impl_ty = self.parse_ty()?;
+        self.expect_consume(Token::LBrace)?;
+
+        let mut fns = Vec::new();
+        while !self.check_consume(Token::RBrace) {
+            fns.push(self.parse_object_function()?);
+        }
+
+        Ok(AstImpl::new(pos, impl_generics, trait_ty, impl_ty, fns))
     }
 }
 

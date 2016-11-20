@@ -338,7 +338,7 @@ impl<'a> Lexer<'a> {
             "export" => Token::Export,
             "trait" => Token::Trait,
             "impl" => Token::Impl,
-            
+
             "let" => Token::Let,
             "if" => Token::If,
             "else" => Token::Else,
@@ -363,6 +363,7 @@ impl<'a> Lexer<'a> {
             "Float" => Token::Float,
             "Char" => Token::Char,
             "_ (Infer)" => Token::Infer,
+            "Self" => Token::SelfType,
 
             _ => Token::Identifier(string),
         })
