@@ -101,7 +101,7 @@ impl<'a> Analyzer<'a> {
 
     /// Analyze a file
     pub fn analyze_file(&mut self, f: ParseFile<'a>) {
-        let ParseFile { file, mut objects, functions, export_fns } = f;
+        let ParseFile { file, mut objects, functions, export_fns, traits, impls } = f;
 
         self.file = Some(file); //TODO: this is wonky, fix?
 
@@ -110,6 +110,14 @@ impl<'a> Analyzer<'a> {
             self.obj_new_id += 1;
             self.obj_ids.insert(obj.name.clone(), obj.id);
             self.obj_names.insert(obj.id, obj.name.clone());
+        }
+
+        for trt in &mut traits {
+            trt.id = self.trait_new_id;
+            self.trait_new_id += 1;
+            self.trt_ids(trt.name.clone(), trt.id);
+            let analyze_trait = self.initialize_trait(obj);
+            self.traits.insert(trt.id, analyze_trait);
         }
 
         for obj in &objects {

@@ -742,5 +742,18 @@ impl AstObjectMember {
 
 pub struct AstTrait {
     pub name: String,
+    pub generics: Option<Vec<String>>,
     pub functions: Vec<AstObjectFnSignature>,
+    pub pos: usize,
+}
+
+impl AstTrait {
+    pub fn new(pos: usize, name: String, generics: Option<Vec<String>>, functions: Vec:AstObjectFnSignature>) {
+        AstTrait {
+            name: name,
+            generics: generics,
+            functions: functions,
+            pos: pos
+        }
+    }
 }

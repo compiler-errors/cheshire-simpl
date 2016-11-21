@@ -7,6 +7,7 @@ pub enum Token {
     Comma,          //    ,
     Colon,          //    :
     ColonColon,     //    ::
+    ColonLt,        //    :<
     LBrace,         //    {
     RBrace,         //    }
     LSqBracket,     //    [
@@ -41,6 +42,8 @@ pub enum Token {
     Let,
     Trait,
     Impl,
+    Where,
+    For,
 
     If,
     Else,
@@ -65,6 +68,7 @@ pub enum Token {
     Float,
     Char,
     Infer,
+    SelfType,
 
     /* Literals */
     String(String, u32),

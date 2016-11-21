@@ -89,6 +89,9 @@ impl<'a> Lexer<'a> {
                     if self.next_char() == ':' {
                         self.bump(2);
                         return Ok(Token::ColonColon);
+                    } else if self.next_char() == '<' {
+                        self.bump(2);
+                        return Ok(Token::ColonLt);
                     } else {
                         self.bump(1);
                         return Ok(Token::Colon);
@@ -338,6 +341,7 @@ impl<'a> Lexer<'a> {
             "export" => Token::Export,
             "trait" => Token::Trait,
             "impl" => Token::Impl,
+            "where" => Token::Where,
 
             "let" => Token::Let,
             "if" => Token::If,
