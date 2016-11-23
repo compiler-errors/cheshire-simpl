@@ -19,8 +19,6 @@ pub struct Analyzer<'a> {
     pub fn_signatures: HashMap<String, FnSignature>,
     /// Map which associates a function name to its definition (block)
     pub fns: HashMap<String, AstFunction>, // TODO: probably just store the block itself...
-    /// List of functions which were export declared in the file
-    pub export_fns: Vec<FnSignature>,
 
     /// Keep track of being inside a "breakable" block
     pub breakable: bool,
@@ -125,6 +123,11 @@ impl<'a> Analyzer<'a> {
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
 
+        for imp in &impls {
+            let analyze_impl = self.initialize_impl(imp);
+            self.impl_skeletons.insert(imp.id, analyze_impl);
+        }
+
         for fun in export_fns {
             if self.fn_signatures.contains_key(&fun.name) {
                 self.err_at(fun.pos, format!("Duplicate function name `{}`", fun.name));
@@ -168,12 +171,18 @@ impl<'a> Analyzer<'a> {
             self.analyze_object(&mut obj);
             self.objs.insert(obj.id, obj);
         }
+
+        for mut imp in impls {
+            self.analyze_impl(&mut imp);
+            self.impls.insert(imp.id, imp);
+        }
     }
 
     /// Analyze a function
     fn analyze_function(&mut self, f: &mut AstFunction) {
         // Raise a scope level
         self.raise();
+        self.set_generics(f.id);
         // Store the first VarId associated with the function
         f.beginning_of_vars = self.var_new_id;
 
@@ -196,6 +205,7 @@ impl<'a> Analyzer<'a> {
         // The VarId's used by the function are given by the range [beginning, end)
         f.end_of_vars = self.var_new_id;
         // Lower the scope
+        self.reset_generics();
         self.fall();
     }
 
@@ -226,7 +236,7 @@ impl<'a> Analyzer<'a> {
                 // Initialize the declared type of the `let` (or infer)
                 let let_ty = self.initialize_ty(ty);
                 // Initialize the type of the expression which the `let` is set to
-                let expr_ty = self.typecheck_expr(value);
+                let expr_ty = self.typecheck_expr(value, None);
                 // We now need to union these types
                 self.union_ty(let_ty, expr_ty, pos);
                 // And then declare it as a usable variable
@@ -324,21 +334,26 @@ impl<'a> Analyzer<'a> {
                 }
                 self.make_array_ty(ty)
             }
-            &mut AstExpressionData::Call { ref mut name, ref mut args } => {
+            &mut AstExpressionData::Call { ref mut name, ref generics, ref mut args } => {
                 let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
                 let fn_sig = self.get_function_signature(name, expression.pos);
-                self.typecheck_function_call(fn_sig, arg_tys, pos)
+                *generic_tys = self.initialize_generics(fn_sig.generics.len(), generics);
+                self.typecheck_function_call(vec![fn_sig], generic_tys, arg_tys, pos)
             }
             &mut AstExpressionData::ObjectCall { ref mut object, ref fn_name, ref mut args } => {
-                let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
                 let object_ty = self.typecheck_expr(object);
-                let fn_sig = self.get_member_function_signature(object_ty, fn_name, expression.pos);
-                self.typecheck_function_call(fn_sig, arg_tys, pos)
+                let fn_sigs = self.get_member_function_signatures(object_ty, fn_name, expression.pos);
+
+                *generic_tys = self.initialize_generics(fn_sig.generics.len(), generics);
+                let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
+                self.typecheck_function_call(fn_sigs, generic_tys, arg_tys, pos)
             }
             &mut AstExpressionData::StaticCall { ref obj_name, ref fn_name, ref mut args } => {
+                let obj_gen_tys: Vec<_> = obj_generics.iter().map(|v| self.initialize_ty(v)).collect();
+                let fn_gen_tys: Vec<_> = fn_generics.iter().map(|v| self.initialize_ty(v)).collect();
                 let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
-                let fn_sig = self.get_static_function_signature(obj_name, fn_name, expression.pos);
-                self.typecheck_function_call(fn_sig, arg_tys, pos)
+                let fn_sig = self.get_static_function_signatures(obj_name, obj_gen_tys, fn_name, expression.pos);
+                self.typecheck_function_call(fn_sigs, fn_gen_tys, arg_tys, pos)
             }
             &mut AstExpressionData::Access { ref mut accessible, ref mut idx } => {
                 let idx_ty = self.typecheck_expr(idx);
@@ -422,16 +437,37 @@ impl<'a> Analyzer<'a> {
 
     /// Typechecks an argument type array against a function signature,
     /// and returns the function's return type.
-    fn typecheck_function_call(&mut self, fn_sig: FnSignature, args: Vec<Ty>, pos: usize) -> Ty {
-        if fn_sig.params.len() != args.len() {
-            self.err_at(pos,
-                        format!("Expected {} arguments, found {} arguments instead",
-                                fn_sig.params.len(),
-                                args.len()));
+    fn typecheck_function_call(&mut self, fn_sigs: Vec<FnSignature>, generics: Vec<Ty>, params: Vec<Ty>, pos: usize) -> Ty {
+        let candidate_sig = None;
+        
+        for fn_sig in fn_sigs {
+            self.set_type_checkpoint();
+
+            for expect_param, given_param in fn_sig.params.iter().zip(params) {
+                if self.union(expect_param, given_param).is_err() {
+                    self.revert_type_checkpoint();
+                    continue;
+                }
+            }
+
+            unimplemented!(); //TODO: check restrictions on generics...
+
+            if candidate_sig.is_some() {
+                //TODO: panic!
+                panic!("");
+            }
+
+            candidate_sig = Some(&fn_sig);
+            self.revert_type_checkpoint();
         }
 
-        for i in 0..args.len() {
-            self.union_ty(fn_sig.params[i], args[i], pos); //TODO: better
+        if candidate_sig.is_none() {
+            panic!("");
+        }
+
+        let fn_sig = if let Some(f) { f } else { unreachable!() };
+        for expect_param, given_param in fn_sig.params.iter().zip(params) {
+            self.union(expect_param, given_param)?;
         }
 
         fn_sig.return_ty

@@ -9,19 +9,24 @@ pub struct ParseFile<'a> {
     pub functions: Vec<AstFunction>,
     pub export_fns: Vec<AstFnSignature>,
     pub objects: Vec<AstObject>,
+    pub traits: Vec<AstTrait>,
+    pub impls: Vec<AstImpl>,
 }
 
 impl<'a> ParseFile<'a> {
     pub fn new(file: FileReader<'a>,
                functions: Vec<AstFunction>,
                export_fns: Vec<AstFnSignature>,
-               objects: Vec<AstObject>)
-               -> ParseFile<'a> {
+               objects: Vec<AstObject>,
+               traits: Vec<AstTrait>,
+               impls: Vec<AstImpl>) -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions,
             export_fns: export_fns,
             objects: objects,
+            traits: traits,
+            impls: impls
         }
     }
 }
@@ -32,22 +37,28 @@ pub struct AstFnSignature {
     pub pos: usize,
     /// The simple name of the function
     pub name: String,
+    pub generics: Vec<String>,
     /// The parameter list that the function receives
     pub parameter_list: Vec<AstFnParameter>,
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
+    pub restrictions: Vec<AstTypeRestriction>,
 }
 
 impl AstFnSignature {
     pub fn new(pos: usize,
                name: String,
+               generics: Vec<String>,
                parameter_list: Vec<AstFnParameter>,
-               return_type: AstType) -> AstFnSignature {
+               return_type: AstType,
+               restrictions: Vec<AstTypeRestriction>) -> AstFnSignature {
        AstFnSignature {
            pos: pos,
            name: name,
+           generics: generics,
            parameter_list: parameter_list,
            return_type: return_type,
+           restrictions: restrictions
        }
     }
 }
@@ -69,16 +80,20 @@ pub struct AstFunction {
 impl AstFunction {
     pub fn new(pos: usize,
                name: String,
+               generics: Vec<String>,
                parameter_list: Vec<AstFnParameter>,
                return_type: AstType,
+               restrictions: Vec<AstTypeRestriction>,
                definition: AstBlock)
                -> AstFunction {
         AstFunction {
             signature: AstFnSignature {
                 pos: pos,
+                generics: generics,
                 name: name,
                 parameter_list: parameter_list,
                 return_type: return_type,
+                restrictions: restrictions,
             },
             definition: definition,
             beginning_of_vars: 0,
@@ -119,7 +134,7 @@ pub enum AstType {
     String,
     Array { ty: Box<AstType> },
     Tuple { types: Vec<AstType> },
-    Identifier(String, usize), // TODO: pos is tacked on hackily...
+    Object(String, Vec<AstType>, usize), // TODO: pos is tacked on hackily...
 }
 
 impl AstType {
@@ -131,8 +146,8 @@ impl AstType {
         AstType::Tuple { types: types }
     }
 
-    pub fn object(obj: String, pos: usize) -> AstType {
-        AstType::Object(obj, pos)
+    pub fn object(obj: String, generics: Vec<AstType>, pos: usize) -> AstType {
+        AstType::Object(obj, generics, pos)
     }
 }
 
@@ -301,6 +316,8 @@ pub struct AstExpression {
     pub pos: usize,
 }
 
+type SubExpression = Box<AstExpression>;
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum AstExpressionData {
     Nothing,
@@ -324,18 +341,22 @@ pub enum AstExpressionData {
     /// A regular function call
     Call {
         name: String,
+        generics: Vec<AstType>,
         args: Vec<AstExpression>,
     },
     /// Call an object's member function
     ObjectCall {
         object: Box<AstExpression>,
         fn_name: String,
+        generics: Vec<AstType>,
         args: Vec<AstExpression>,
     },
     /// Call an object's static function
     StaticCall {
         obj_name: String,
+        obj_generics: Vec<AstType>,
         fn_name: String,
+        fn_generics: Vec<AstType>,
         args: Vec<AstExpression>,
     },
     /// An array access `a[1u]`
@@ -469,10 +490,11 @@ impl AstExpression {
         }
     }
 
-    pub fn call(name: String, args: Vec<AstExpression>, pos: usize) -> AstExpression {
+    pub fn call(name: String, generics: Vec<AstType>, args: Vec<AstExpression>, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Call {
                 name: name,
+                generics: generics,
                 args: args,
             },
             ty: 0,
@@ -482,6 +504,7 @@ impl AstExpression {
 
     pub fn object_call(object: AstExpression,
                        fn_name: String,
+                       generics: Vec<AstType>,
                        args: Vec<AstExpression>,
                        pos: usize)
                        -> AstExpression {
@@ -489,6 +512,7 @@ impl AstExpression {
             expr: AstExpressionData::ObjectCall {
                 object: Box::new(object),
                 fn_name: fn_name,
+                generics: generics,
                 args: args,
             },
             ty: 0,
@@ -497,14 +521,18 @@ impl AstExpression {
     }
 
     pub fn static_call(obj_name: String,
+                       obj_generics: Vec<AstType>,
                        fn_name: String,
+                       fn_generics: Vec<AstType>,
                        args: Vec<AstExpression>,
                        pos: usize)
                        -> AstExpression {
         AstExpression {
             expr: AstExpressionData::StaticCall {
                 obj_name: obj_name,
+                obj_generics: obj_generics,
                 fn_name: fn_name,
+                fn_generics: fn_generics,
                 args: args,
             },
             ty: 0,
@@ -631,6 +659,7 @@ impl AstExpression {
 pub struct AstObject {
     /// The beginning position of the object
     pub pos: usize,
+    pub generics: Vec<String>,
     /// The object name
     pub name: String,
     /// The Id associated with the object in Analysis
@@ -643,12 +672,14 @@ pub struct AstObject {
 
 impl AstObject {
     pub fn new(pos: usize,
+               generics: Vec<String>,
                name: String,
                functions: Vec<AstObjectFunction>,
                members: Vec<AstObjectMember>)
                -> AstObject {
         AstObject {
             pos: pos,
+            generics: generics,
             name: name,
             id: 0,
             functions: functions,
@@ -663,26 +694,32 @@ pub struct AstObjectFnSignature {
     pub pos: usize,
     /// The simple name of the function
     pub name: String,
+    pub generics: Vec<String>,
     /// Whether the function is a member or static function of the type
     pub has_self: bool,
     /// The parameter list that the function receives
     pub parameter_list: Vec<AstFnParameter>,
     /// The return type of the function, or AstType::None
     pub return_type: AstType,
+    pub restrictions: Vec<AstTypeRestriction>,
 }
 
 impl AstObjectFnSignature {
     pub fn new(pos: usize,
                name: String,
+               generics: Vec<String>,
                has_self: bool,
                parameter_list: Vec<AstFnParameter>,
-               return_type: AstType) -> AstObjectFnSignature {
+               return_type: AstType,
+               restrictions: Vec<AstTypeRestriction>) -> AstObjectFnSignature {
         AstObjectFnSignature {
             pos: pos,
             name: name,
+            generics: generics,
             has_self: has_self,
             parameter_list: parameter_list,
             return_type: return_type,
+            restrictions: restrictions,
         }
     }
 }
@@ -699,21 +736,11 @@ pub struct AstObjectFunction {
 }
 
 impl AstObjectFunction {
-    pub fn new(pos: usize,
-               name: String,
-               has_self: bool,
-               parameter_list: Vec<AstFnParameter>,
-               return_type: AstType,
+    pub fn new(sig: AstObjectFnSignature,
                definition: AstBlock)
                -> AstObjectFunction {
         AstObjectFunction {
-            signature: AstObjectFnSignature {
-                pos: pos,
-                name: name,
-                has_self: has_self,
-                parameter_list: parameter_list,
-                return_type: return_type,
-            },
+            signature: sig,
             definition: definition,
             beginning_of_vars: 0,
             end_of_vars: 0,
@@ -740,20 +767,63 @@ impl AstObjectMember {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct AstTrait {
     pub name: String,
-    pub generics: Option<Vec<String>>,
+    pub generics: Vec<String>,
     pub functions: Vec<AstObjectFnSignature>,
     pub pos: usize,
 }
 
 impl AstTrait {
-    pub fn new(pos: usize, name: String, generics: Option<Vec<String>>, functions: Vec:AstObjectFnSignature>) {
+    pub fn new(pos: usize, name: String, generics: Vec<String>, functions: Vec<AstObjectFnSignature>) -> AstTrait {
         AstTrait {
             name: name,
             generics: generics,
             functions: functions,
             pos: pos
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstTypeRestriction {
+    pos: usize,
+    ty: AstType,
+    trt: AstType
+}
+
+impl AstTypeRestriction {
+    pub fn new(pos: usize, ty: AstType, trt: AstType) -> AstTypeRestriction {
+        AstTypeRestriction {
+            pos: pos,
+            ty: ty,
+            trt: trt
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AstImpl {
+    pub generics: Vec<String>,
+    pub trait_ty: AstType,
+    pub impl_ty: AstType,
+    pub fns: Vec<AstObjectFunction>,
+    pub pos: usize,
+}
+
+impl AstImpl {
+    pub fn new(pos: usize,
+           generics: Vec<String>,
+           trait_ty: AstType,
+           impl_ty: AstType,
+           fns: Vec<AstObjectFunction>) -> AstImpl {
+        AstImpl {
+            pos: pos,
+            generics: generics,
+            trait_ty: trait_ty,
+            impl_ty: impl_ty,
+            fns: fns
         }
     }
 }

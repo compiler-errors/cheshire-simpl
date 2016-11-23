@@ -222,17 +222,17 @@ impl<'a> Parser<'a> {
         let restrictions = self.try_parse_restrictions()?;
         let definition = self.parse_block()?;
 
-        Ok(AstFunction::new(pos, fn_name, parameter_list, return_type, definition, restrictions))
+        Ok(AstFunction::new(pos, fn_name, generics, parameter_list, return_type, restrictions, definition))
     }
 
-    fn try_parse_decl_generics(&mut self) -> ParseResult<Option<Vec<String>>> {
+    fn try_parse_decl_generics(&mut self) -> ParseResult<Vec<String>> {
         if !self.check_consume(Token::Lt) && !self.check_consume(Token::ColonLt) {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
         let mut generics = Vec::new();
 
-        while !self.check_consume(Token::RParen) {
+        while !self.check_consume(Token::RParen) || generics.len() == 0 {
             if generics.len() != 0 {
                 self.expect_consume(Token::Comma)?;
             }
@@ -240,12 +240,12 @@ impl<'a> Parser<'a> {
             generics.push(self.expect_get_identifier()?);
         }
 
-        Ok(Some(generics))
+        Ok(generics)
     }
 
-    fn try_parse_restrictions(&mut self) -> ParseResult<Option<Vec<AstTypeRestriction>>> {
+    fn try_parse_restrictions(&mut self) -> ParseResult<Vec<AstTypeRestriction>> {
         if !self.check_consume(Token::Where) {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
         let mut restrictions = Vec::new();
@@ -255,13 +255,14 @@ impl<'a> Parser<'a> {
                 self.expect_consume(Token::Comma)?;
             }
 
+            let pos = self.pos;
             let ty = self.parse_type()?;
             self.expect_consume(Token::Colon)?;
             let trt = self.parse_type()?;
-            restrictions.push(AstTypeRestriction::new(ty, trt));
+            restrictions.push(AstTypeRestriction::new(pos, ty, trt));
         }
 
-        Ok(Some(restrictions))
+        Ok(restrictions)
     }
 
     /// Parse a parameter list (including LParen and RParen) following a function.
@@ -385,7 +386,7 @@ impl<'a> Parser<'a> {
         let generics = if self.check_consume(Token::ColonColon) {
             self.try_parse_expr_generics()?
         } else {
-            None
+            Vec::new()
         };
         Ok(AstType::object(obj, generics, pos))
     }
@@ -598,7 +599,7 @@ impl<'a> Parser<'a> {
                             lhs = AstExpression::object_call(lhs, name, generics, params, pos);
                         } else if self.check(Token::LParen) {
                             let params = self.parse_expr_args()?;
-                            lhs = AstExpression::object_call(lhs, name, None, params, pos);
+                            lhs = AstExpression::object_call(lhs, name, Vec::new(), params, pos);
                         } else {
                             lhs = AstExpression::object_access(lhs, name, pos);
                         }
@@ -708,31 +709,30 @@ impl<'a> Parser<'a> {
 
     fn parse_identifier_expr(&mut self) -> ParseResult<AstExpression> {
         // N::<T>::new:<T>()
-        let name = self.expect_get_identifier()?;
+        let pos = self.pos;
+        let identifier = self.expect_get_identifier()?;
         if self.check(Token::LParen) {
             let args = self.parse_expr_args()?;
-            Ok(AstExpression::call(identifier.clone(), None, args, pos))
+            Ok(AstExpression::call(identifier, Vec::new(), args, pos))
         } else if self.check(Token::ColonLt) {
             let generics = self.try_parse_expr_generics()?;
             let args = self.parse_expr_args()?;
-            Ok(AstExpression::call(identifier.clone(), generics, args, pos))
+            Ok(AstExpression::call(identifier, generics, args, pos))
         } else if self.check(Token::ColonColon) {
             self.bump();
 
-            let obj_generics = if self.check(Token::Lt) {
-                let g = self.try_parse_expr_generics()?;
-                self.expect_consume(Token::ColonColon);
-                Some(g)
-            } else {
-                None
-            };
+            let obj_generics = self.try_parse_expr_generics()?;
+
+            if obj_generics.len() > 0 {
+                self.expect_consume(Token::ColonColon)?;
+            }
 
             let fn_name = self.expect_get_identifier()?;
             let call_generics = self.try_parse_expr_generics()?;
             let args = self.parse_expr_args()?;
-            Ok(AstExpression::static_call(identifier.clone(), obj_generics, fn_name, call_generics, args, pos))
+            Ok(AstExpression::static_call(identifier, obj_generics, fn_name, call_generics, args, pos))
         } else {
-            Ok(AstExpression::identifier(identifier.clone(), pos))
+            Ok(AstExpression::identifier(identifier, pos))
         }
     }
 
@@ -810,14 +810,14 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
-    fn try_parse_expr_generics(&mut self) -> ParseResult<Option<Vec<AstType>>> {
+    fn try_parse_expr_generics(&mut self) -> ParseResult<Vec<AstType>> {
         if !self.check_consume(Token::Lt) && !self.check_consume(Token::ColonLt) {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
         let mut generics = Vec::new();
 
-        while !self.check_consume(Token::RParen) {
+        while !self.check_consume(Token::RParen) || generics.len() == 0 {
             if generics.len() != 0 {
                 self.expect_consume(Token::Comma)?;
             }
@@ -825,7 +825,7 @@ impl<'a> Parser<'a> {
             generics.push(self.parse_type()?);
         }
 
-        Ok(Some(generics))
+        Ok(generics)
     }
 
     fn ensure_lval(&self, expr: &AstExpression) -> ParseResult<()> {
@@ -942,6 +942,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_impl(&mut self) -> ParseResult<AstImpl> {
+        let pos = self.pos;
         self.expect_consume(Token::Impl)?;
         let impl_generics = self.try_parse_decl_generics()?;
         let trait_ty = self.parse_object_type()?;
@@ -951,7 +952,9 @@ impl<'a> Parser<'a> {
 
         let mut fns = Vec::new();
         while !self.check_consume(Token::RBrace) {
-            fns.push(self.parse_object_function()?);
+            let obj_fn = self.parse_object_function()?;
+            if obj_fn.
+            fns.push();
         }
 
         Ok(AstImpl::new(pos, impl_generics, trait_ty, impl_ty, fns))
