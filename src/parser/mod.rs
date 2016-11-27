@@ -953,8 +953,10 @@ impl<'a> Parser<'a> {
         let mut fns = Vec::new();
         while !self.check_consume(Token::RBrace) {
             let obj_fn = self.parse_object_function()?;
-            if obj_fn.
-            fns.push();
+            if obj_fn.signature.restrictions.len() != 0 {
+                self.error_at(obj_fn.signature.pos, format!("Impl functions cannot have restrictions"))?;
+            }
+            fns.push(obj_fn);
         }
 
         Ok(AstImpl::new(pos, impl_generics, trait_ty, impl_ty, fns))

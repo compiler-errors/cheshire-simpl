@@ -42,7 +42,7 @@ pub enum AnalyzeType {
     String,
     Tuple(Vec<Ty>),
     Array(Ty),
-    Object(ObjId),
+    Object(ObjId, Vec<Ty>), // ObjId and Generics
 
     Same(Ty),
 }

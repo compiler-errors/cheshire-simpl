@@ -14,94 +14,13 @@ use std::process::exit;
   * In the future, the module should also be responsible for resolving the
   * conversion of local names to global names `fn_name` to `pkg.pkg.fn_name`.
   */
-pub struct Analyzer<'a> {
-    /// Map which associates a function name to a signature
-    pub fn_signatures: HashMap<String, FnSignature>,
-    /// Map which associates a function name to its definition (block)
-    pub fns: HashMap<String, AstFunction>, // TODO: probably just store the block itself...
+pub struct Analyzer {
 
-    /// Keep track of being inside a "breakable" block
-    pub breakable: bool,
-
-    // Keep track of object information
-    /// Counter which stores the next free ObjId
-    obj_new_id: ObjId,
-    /// Associates an object name to a unique ID
-    pub obj_ids: HashMap<String, ObjId>,
-    pub obj_names: HashMap<ObjId, String>,
-    /// Associates an object id to an object "skeleton"
-    pub obj_skeletons: HashMap<ObjId, AnalyzeObject>,
-    /// Associates an object ID to a parsed object
-    pub objs: HashMap<ObjId, AstObject>,
-    /// Variable storing the current self object id, or 0
-    self_id: ObjId,
-
-    // Keep track of variable information
-    /// "Scoped map" which associates a variable name to its VarId
-    var_ids: Vec<HashMap<String, VarId>>,
-    /// Map which associates a VarId to its underlying type
-    pub var_tys: HashMap<VarId, Ty>,
-    /// Counter which stores the next free VarId
-    var_new_id: VarId,
-    /// Variable storing the return type of the outer function
-    return_ty: Ty,
-
-    // Keep track of string information
-    /// Counter which stores the next free StringId
-    str_new_id: StringId,
-    /// Map which associates a StringId with its corresponding String
-    pub strings: HashMap<StringId, (String, u32)>,
-
-    /// File which is currently being analyzed
-    file: Option<FileReader<'a>>,
-
-    // Type System
-    /// Map which associates a Ty id with an underlying AnalyzeType
-    pub ty_map: HashMap<Ty, AnalyzeType>,
-    /// Counter which stores the next free Ty id
-    ty_new_id: Ty,
 }
 
-impl<'a> Analyzer<'a> {
-    pub fn new() -> Analyzer<'a> {
-        let mut ty_map = HashMap::new();
-        // Insert all of the "basic" fundamental types
-        ty_map.insert(TY_NOTHING, AnalyzeType::Nothing);
-        ty_map.insert(TY_BOOLEAN, AnalyzeType::Boolean);
-        ty_map.insert(TY_INT, AnalyzeType::Int);
-        ty_map.insert(TY_UINT, AnalyzeType::UInt);
-        ty_map.insert(TY_FLOAT, AnalyzeType::Float);
-        ty_map.insert(TY_CHAR, AnalyzeType::Char);
-        ty_map.insert(TY_STRING, AnalyzeType::String);
-
-        Analyzer {
-            fn_signatures: HashMap::new(),
-            fns: HashMap::new(),
-            export_fns: Vec::new(),
-            breakable: false,
-            var_ids: Vec::new(),
-            var_tys: HashMap::new(),
-            var_new_id: VAR_FIRST_NEW_ID,
-            return_ty: 0,
-            obj_new_id: OBJ_FIRST_NEW_ID,
-            obj_ids: HashMap::new(),
-            obj_names: HashMap::new(),
-            obj_skeletons: HashMap::new(),
-            objs: HashMap::new(),
-            self_id: 0,
-            strings: HashMap::new(),
-            str_new_id: STR_FIRST_NEW_ID,
-            file: None,
-            ty_map: ty_map,
-            ty_new_id: TY_FIRST_NEW_ID,
-        }
-    }
-
-    /// Analyze a file
-    pub fn analyze_file(&mut self, f: ParseFile<'a>) {
+impl Analyzer {
+    fn check_file(&mut self, f: ParseFile) {
         let ParseFile { file, mut objects, functions, export_fns, traits, impls } = f;
-
-        self.file = Some(file); //TODO: this is wonky, fix?
 
         for obj in &mut objects {
             obj.id = self.obj_new_id;
@@ -110,671 +29,266 @@ impl<'a> Analyzer<'a> {
             self.obj_names.insert(obj.id, obj.name.clone());
         }
 
-        for trt in &mut traits {
-            trt.id = self.trait_new_id;
-            self.trait_new_id += 1;
-            self.trt_ids(trt.name.clone(), trt.id);
-            let analyze_trait = self.initialize_trait(obj);
-            self.traits.insert(trt.id, analyze_trait);
-        }
-
         for obj in &objects {
             let analyze_obj = self.initialize_object(obj);
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
 
-        for imp in &impls {
-            let analyze_impl = self.initialize_impl(imp);
-            self.impl_skeletons.insert(imp.id, analyze_impl);
-        }
 
-        for fun in export_fns {
-            if self.fn_signatures.contains_key(&fun.name) {
-                self.err_at(fun.pos, format!("Duplicate function name `{}`", fun.name));
-            }
-
-            // Convert a  vec of AstType to Ty id by a mapping operation
-            let arg_tys: Vec<_> = fun.parameter_list
-                .iter()
-                .map(|p| self.initialize_ty(&p.ty))
-                .collect();
-            let return_ty = self.initialize_ty(&fun.return_type);
-            // And insert the function signature into a map associated with its name
-            self.fn_signatures.insert(fun.name.clone(), FnSignature::new(arg_tys, return_ty));
-        }
-
-        for fun in &functions {
-            let sig = &fun.signature;
-            if self.fn_signatures.contains_key(&sig.name) {
-                self.err_at(sig.pos, format!("Duplicate function name `{}`", sig.name));
-            }
-
-            // Convert a  vec of AstType to Ty id by a mapping operation
-            let arg_tys: Vec<_> = sig.parameter_list
-                .iter()
-                .map(|p| self.initialize_ty(&p.ty))
-                .collect();
-            let return_ty = self.initialize_ty(&sig.return_type);
-            // And insert the function signature into a map associated with its name
-            self.fn_signatures.insert(sig.name.clone(), FnSignature::new(arg_tys, return_ty));
-        }
-
-        // Let's use a drain so we can take ownership of the function
-        for mut fun in functions {
-            // First analyze the function
-            self.analyze_function(&mut fun);
-            // And then store it so we can emit it later
-            self.fns.insert(fun.signature.name.clone(), fun);
-        }
-
-        for mut obj in objects {
-            self.analyze_object(&mut obj);
-            self.objs.insert(obj.id, obj);
-        }
-
-        for mut imp in impls {
-            self.analyze_impl(&mut imp);
-            self.impls.insert(imp.id, imp);
-        }
     }
 
-    /// Analyze a function
-    fn analyze_function(&mut self, f: &mut AstFunction) {
-        // Raise a scope level
-        self.raise();
-        self.set_generics(f.id);
-        // Store the first VarId associated with the function
-        f.beginning_of_vars = self.var_new_id;
-
-        let sig = &mut f.signature;
-
-        // Declare the parameters as variables
-        for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut sig.parameter_list {
-            let param_ty = self.initialize_ty(ty);
-            self.declare_variable(name, param_ty, pos);
-        }
-
-        // Save the return type
-        let return_ty = self.initialize_ty(&mut sig.return_type);
-        self.set_return_type(return_ty);
-
-        // Analyze the function's body
-        self.analyze_block(&mut f.definition);
-
-        // Store the last VarId associated with the function
-        // The VarId's used by the function are given by the range [beginning, end)
-        f.end_of_vars = self.var_new_id;
-        // Lower the scope
-        self.reset_generics();
-        self.fall();
-    }
-
-    /// Analyze a block of statements
-    fn analyze_block(&mut self, block: &mut AstBlock) {
-        // TODO: make sure break and continue exist only in whiles!!!!
-        self.raise();
-
-        for stmt in &mut block.statements {
-            self.analyze_stmt(stmt);
-        }
-
-        self.fall();
-    }
-
-    /// Analyze a single statement
-    fn analyze_stmt(&mut self, stmt: &mut AstStatement) {
-        let pos = stmt.pos; // Store the position of the statement (for errors!)
-
-        match &mut stmt.stmt {
-            &mut AstStatementData::Block { ref mut block } => {
-                self.analyze_block(block);
-            }
-            &mut AstStatementData::Let { ref mut var_name,
-                                         ref mut ty,
-                                         ref mut value,
-                                         ref mut var_id } => {
-                // Initialize the declared type of the `let` (or infer)
-                let let_ty = self.initialize_ty(ty);
-                // Initialize the type of the expression which the `let` is set to
-                let expr_ty = self.typecheck_expr(value, None);
-                // We now need to union these types
-                self.union_ty(let_ty, expr_ty, pos);
-                // And then declare it as a usable variable
-                *var_id = self.declare_variable(var_name, let_ty, pos);
-            }
-            &mut AstStatementData::If { ref mut condition, ref mut block, ref mut else_block } => {
-                let ty = self.typecheck_expr(condition);
-                // We know it must ALWAYS be a boolean
-                self.union_ty(ty, TY_BOOLEAN, pos);
-                self.analyze_block(block);
-                self.analyze_block(else_block);
-            }
-            &mut AstStatementData::While { ref mut condition, ref mut block } => {
-                // TODO: make sure break and continue exist only in whiles!!!!
-                let ty = self.typecheck_expr(condition);
-                self.union_ty(ty, TY_BOOLEAN, pos);
-                // Store the old "breakable" condition while we analyze the block
-                let old_breakable = self.breakable;
-                self.breakable = true;
-                self.analyze_block(block);
-                self.breakable = old_breakable;
-                // and restore it when we're done
-            }
-            &mut AstStatementData::Break |
-            &mut AstStatementData::Continue => {
-                if !self.breakable {
-                    self.err_at(stmt.pos,
-                                format!("Cannot `break` or `continue` outside of a `while`"))
-                }
-            }
-            &mut AstStatementData::NoOp => {}
-            &mut AstStatementData::Return { ref mut value } => {
-                // Simple: union expected return type and actual type of value being returned
-                let ty = self.typecheck_expr(value);
-                let return_ty = self.get_return_type();
-                self.union_ty(ty, return_ty, pos);
-            }
-            &mut AstStatementData::Assert { ref mut condition } => {
-                // Union condition with BOOLEAN
-                let ty = self.typecheck_expr(condition);
-                self.union_ty(ty, TY_BOOLEAN, pos);
-            }
-            &mut AstStatementData::Expression { ref mut expression } => {
-                self.typecheck_expr(expression);
-            }
-        }
-    }
-
-    fn typecheck_expr(&mut self, expression: &mut AstExpression) -> Ty {
-        let &mut AstExpression { ref mut expr, ref mut ty, pos } = expression;
+    fn check_expr(node: &mut AstExpression, expect_ty: Option<Ty>) -> AnalyzeResult<Ty> {
+        let &AstExpression { ref mut expr, ref mut ty, pos } = node;
 
         *ty = match expr {
-            &mut AstExpressionData::Nothing => TY_NOTHING,
-            &mut AstExpressionData::True => TY_BOOLEAN,
-            &mut AstExpressionData::False => TY_BOOLEAN,
-            &mut AstExpressionData::Null => self.new_null_infer_ty(),
-            &mut AstExpressionData::SelfRef => {
-                if self.self_id == 0 {
-                    self.err_at(pos,
-                                "`self` can only be used inside a object member function \
-                                 definition"
-                                    .to_string());
-                }
-                let self_id = self.self_id; // Non-lexical borrow, please
-                self.make_object_ty(self_id)
+            &mut AstExpressionData::Call { ref name, ref mut generics, ref mut args } => {
+                let fn_sig = self.get_fn_sig(name);
+                let gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
+                let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
+                self.check_fn(fn_sig, gen_tys, arg_tys)?
             }
-            &mut AstExpressionData::String { ref string, ref mut id, len } => {
-                // Save string in map, first
-                *id = self.str_new_id;
-                self.str_new_id += 1;
-                self.strings.insert(*id, (string.clone(), len));
-                TY_STRING
+            &mut AstExpressionData::ObjectCall { ref object, ref fn_name, ref generics, ref mut args } => {
+                let obj_ty = self.check_expr(object);
+                let (fn_sigs, trait_id) = self.get_obj_fn_sigs(obj_ty, fn_name, true); //true = member
+                let gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
+                let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
+                self.check_obj_fns(fn_sigs, gen_tys, arg_tys, expect_ty)?
             }
-            &mut AstExpressionData::Int(_) => TY_INT,
-            &mut AstExpressionData::UInt(_) => TY_UINT,
-            &mut AstExpressionData::Float(_) => TY_FLOAT,
-            &mut AstExpressionData::Char(_) => TY_CHAR,
-            &mut AstExpressionData::Identifier { ref name, ref mut var_id } => {
-                // Get variable, failing if the variable doesn't exist!
-                *var_id = self.get_variable_id(name, pos);
-                self.get_variable_type(*var_id)
-            }
-            &mut AstExpressionData::Tuple { ref mut values } => {
-                let tys: Vec<_> = values.iter_mut().map(|v| self.typecheck_expr(v)).collect();
-                self.make_tuple_ty(tys)
-            }
-            &mut AstExpressionData::Array { ref mut elements } => {
-                let ty = self.new_infer_ty(); // We start out as an [_] array...
-                for ref mut element in elements {
-                    let elt_ty = self.typecheck_expr(element);
-                    // We need to union the array's inner type with each element
-                    // since each element must essentially be the same type
-                    // (union operator is transitive...)
-                    self.union_ty(ty, elt_ty, element.pos);
-                }
-                self.make_array_ty(ty)
-            }
-            &mut AstExpressionData::Call { ref mut name, ref generics, ref mut args } => {
-                let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
-                let fn_sig = self.get_function_signature(name, expression.pos);
-                *generic_tys = self.initialize_generics(fn_sig.generics.len(), generics);
-                self.typecheck_function_call(vec![fn_sig], generic_tys, arg_tys, pos)
-            }
-            &mut AstExpressionData::ObjectCall { ref mut object, ref fn_name, ref mut args } => {
-                let object_ty = self.typecheck_expr(object);
-                let fn_sigs = self.get_member_function_signatures(object_ty, fn_name, expression.pos);
-
-                *generic_tys = self.initialize_generics(fn_sig.generics.len(), generics);
-                let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
-                self.typecheck_function_call(fn_sigs, generic_tys, arg_tys, pos)
-            }
-            &mut AstExpressionData::StaticCall { ref obj_name, ref fn_name, ref mut args } => {
-                let obj_gen_tys: Vec<_> = obj_generics.iter().map(|v| self.initialize_ty(v)).collect();
-                let fn_gen_tys: Vec<_> = fn_generics.iter().map(|v| self.initialize_ty(v)).collect();
-                let arg_tys: Vec<_> = args.iter_mut().map(|v| self.typecheck_expr(v)).collect();
-                let fn_sig = self.get_static_function_signatures(obj_name, obj_gen_tys, fn_name, expression.pos);
-                self.typecheck_function_call(fn_sigs, fn_gen_tys, arg_tys, pos)
-            }
-            &mut AstExpressionData::Access { ref mut accessible, ref mut idx } => {
-                let idx_ty = self.typecheck_expr(idx);
-                self.union_ty(idx_ty, TY_UINT, idx.pos); // The index should be uint
-                let array_ty = self.typecheck_expr(accessible);
-                // We "extract" the inner type T out of the array type [T].
-                self.extract_array_inner_ty(array_ty, accessible.pos)
-            }
-            &mut AstExpressionData::TupleAccess { ref mut accessible, idx } => {
-                let tuple_ty = self.typecheck_expr(accessible);
-                self.extract_tuple_inner_ty(tuple_ty, idx, accessible.pos)
-            }
-            &mut AstExpressionData::ObjectAccess { ref mut object,
-                                                   ref mem_name,
-                                                   ref mut mem_idx } => {
-                let obj_ty = self.typecheck_expr(object);
-                *mem_idx = self.extract_object_member_idx(obj_ty, mem_name, pos);
-                self.extract_object_member_ty(obj_ty, mem_name, pos)
-            }
-            &mut AstExpressionData::Not(ref mut expr) => {
-                let ty = self.typecheck_expr(expr);
-                if self.is_integral_ty(ty) || self.is_boolean_ty(ty) {
-                    ty
-                } else {
-                    self.err_at(expr.pos,
-                                format!("Expected sub-expression of type `Int`, `UInt` or `Bool`"));
-                }
-            }
-            &mut AstExpressionData::Negate(ref mut expr) => {
-                let ty = self.typecheck_expr(expr);
-                if self.is_numeric_ty(ty) {
-                    ty
-                } else {
-                    self.err_at(expr.pos, format!("Expected numeric sub-expression"));
-                }
-            }
-            &mut AstExpressionData::Allocate { ref object } => {
-                let obj_id = self.get_object_id(object, pos);
-                self.make_object_ty(obj_id)
-            }
-            &mut AstExpressionData::BinOp { kind, ref mut lhs, ref mut rhs } => {
-                let lhs_ty = self.typecheck_expr(lhs);
-                let rhs_ty = self.typecheck_expr(rhs);
-                self.union_ty(lhs_ty, rhs_ty, pos);
-                match kind {
-                    BinOpKind::Multiply | BinOpKind::Divide | BinOpKind::Modulo |
-                    BinOpKind::Add | BinOpKind::Subtract => {
-                        if !self.is_numeric_ty(lhs_ty) {
-                            self.err_at(pos, format!("Expected numeric sub-expression"));
-                        }
-                        lhs_ty
-                    }
-                    BinOpKind::ShiftLeft | BinOpKind::ShiftRight => {
-                        if !self.is_integral_ty(lhs_ty) {
-                            self.err_at(pos, format!("Expected integer sub-expression"));
-                        }
-                        lhs_ty
-                    }
-                    BinOpKind::Greater | BinOpKind::Less | BinOpKind::GreaterEqual |
-                    BinOpKind::LessEqual => {
-                        if !self.is_numeric_ty(lhs_ty) {
-                            self.err_at(pos, format!("Expected numeric sub-expression"));
-                        }
-                        TY_BOOLEAN
-                    }
-                    BinOpKind::Xor | BinOpKind::And | BinOpKind::Or => {
-                        // TODO: also numeric not float
-                        if !self.is_boolean_ty(lhs_ty) {
-                            self.err_at(pos, format!("Expected sub-expression of type `Bool`"));
-                        }
-                        lhs_ty
-                    }
-                    BinOpKind::EqualsEquals | BinOpKind::NotEqual => TY_BOOLEAN,
-                    BinOpKind::Set => lhs_ty,
-                }
+            &mut AstExpressionData::StaticCall { ref obj_name, ref mut obj_generics, ref fn_name, ref mut fn_generics, ref mut args } => {
+                let obj_gen_tys: Vec<_> = map_vec(obj_generics, |t| self.init_ty(t));
+                let obj_ty = self.make_object_ty(obj_name, obj_gen_tys);
+                let (fn_sigs, trait_id) = self.get_obj_fn_sigs(obj_ty, fn_name, false); //false = static
+                let fn_gen_tys: Vec<_> = map_vec(fn_generics, |t| self.init_ty(t));
+                let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
+                self.check_obj_fns(fn_sigs, gen_tys, arg_tys, expect_ty)?
             }
         };
 
-        *ty
+        Ok(*ty)
     }
 
-    /// Typechecks an argument type array against a function signature,
-    /// and returns the function's return type.
-    fn typecheck_function_call(&mut self, fn_sigs: Vec<FnSignature>, generics: Vec<Ty>, params: Vec<Ty>, pos: usize) -> Ty {
-        let candidate_sig = None;
-        
-        for fn_sig in fn_sigs {
-            self.set_type_checkpoint();
-
-            for expect_param, given_param in fn_sig.params.iter().zip(params) {
-                if self.union(expect_param, given_param).is_err() {
-                    self.revert_type_checkpoint();
-                    continue;
-                }
+    fn check_fn(fn_sig: FnSignature, generics: &mut Vec<Ty>, args: Vec<Ty>, return_hint: Option<Ty>) -> AnalyzeResult<Ty> {
+        if generics.len() == 0 && fn_sig.generic_ids.len() != 0 {
+            for _ in 0..fn_sig.generic_ids.len() {
+                generics.push(self.new_infer_ty());
             }
-
-            unimplemented!(); //TODO: check restrictions on generics...
-
-            if candidate_sig.is_some() {
-                //TODO: panic!
-                panic!("");
-            }
-
-            candidate_sig = Some(&fn_sig);
-            self.revert_type_checkpoint();
         }
 
-        if candidate_sig.is_none() {
+        if generics.len() != fn_sig.generic_ids.len() {
+            return self.error();
+        }
+
+        let replacements: HashMap<_, _> = fn_sig.generic_ids.iter().zip(generics).collect();
+
+        for expect_ty, arg_ty in fn_sig.params.iter().zip(args) {
+            let repl_expect_ty = self.replace_ty(expect_ty, replacements);
+
+            self.union_ty(repl_expect_ty, arg_ty);
+        }
+
+        let repl_return_ty = self.replace_ty(fn_sig.return_ty, replacements);
+
+        if let Some(expect_return_ty) = return_hint {
+            self.union_ty(expect_return_ty, repl_return_ty)
+        }
+
+        self.check_requirements(replacements, fn_sig.reqs, MAX_IMPL_SEARCH_DEPTH).and(Ok(repl_return_ty))
+    }
+
+    fn check_fns(fn_sigs: Vec<FnSignature>, generics: &mut Vec<Ty>, args: Vec<Ty>, return_hint: Option<Ty>) -> AnalyzeResult<Ty> {
+        if generics.len() == 0 && fn_sig.generic_ids.len() != 0 {
+            for _ in 0..fn_sig.generic_ids.len() {
+                generics.push(self.new_infer_ty());
+            }
+        }
+
+        if generics.len() != fn_sig.generic_ids.len() {
             panic!("");
         }
 
-        let fn_sig = if let Some(f) { f } else { unreachable!() };
-        for expect_param, given_param in fn_sig.params.iter().zip(params) {
-            self.union(expect_param, given_param)?;
-        }
+        let candidate_fn = None;
 
-        fn_sig.return_ty
-    }
+        for fn_sig in fn_sigs {
+            self.set_ty_checkpoint();
+            let check_result = self.check_fn(fn_sig, generics, args, hint_ty);
 
-    fn initialize_object(&mut self, obj: &AstObject) -> AnalyzeObject {
-        let mut member_ids = HashMap::new();
-        let mut member_tys = Vec::new();
-        let mut member_signatures = HashMap::new();
-        let mut static_signatures = HashMap::new();
-
-        for ref mem in &obj.members {
-            if member_ids.contains_key(&mem.name) {
-                self.err_at(mem.pos, format!("Duplicate member named `{}`", mem.name));
-            }
-
-            let mem_id = member_tys.len() as u32;
-            let mem_ty = self.initialize_ty(&mem.member_type);
-            member_tys.push(mem_ty);
-            member_ids.insert(mem.name.clone(), mem_id);
-        }
-
-        for ref fun in &obj.functions {
-            let sig = &fun.signature;
-
-            if member_signatures.contains_key(&sig.name) ||
-               static_signatures.contains_key(&sig.name) {
-                self.err_at(sig.pos,
-                            format!("Duplicate member function named `{}`", sig.name));
-            }
-
-            let arg_tys: Vec<_> = sig.parameter_list
-                .iter()
-                .map(|p| self.initialize_ty(&p.ty))
-                .collect();
-            let return_ty = self.initialize_ty(&sig.return_type);
-
-            if sig.has_self {
-                member_signatures.insert(sig.name.clone(), FnSignature::new(arg_tys, return_ty));
-            } else {
-                static_signatures.insert(sig.name.clone(), FnSignature::new(arg_tys, return_ty));
-            }
-        }
-
-        AnalyzeObject::new(obj.name.clone(),
-                           member_ids,
-                           member_tys,
-                           member_signatures,
-                           static_signatures)
-    }
-
-    fn analyze_object(&mut self, obj: &mut AstObject) {
-        for f in &mut obj.functions {
-            let sig = &mut f.signature;
-
-            if sig.has_self {
-                self.self_id = obj.id;
-            } else {
-                self.self_id = 0;
-            }
-
-            // -- COPIED FROM analyze_function -- //
-            // TODO: try to union these??
-
-            // Raise a scope level
-            self.raise();
-            // Store the first VarId associated with the function
-            f.beginning_of_vars = self.var_new_id;
-
-            // Declare the parameters as variables
-            for &mut AstFnParameter { ref name, ref mut ty, pos } in &mut sig.parameter_list {
-                let param_ty = self.initialize_ty(ty);
-                self.declare_variable(name, param_ty, pos);
-            }
-
-            // Save the return type
-            let return_ty = self.initialize_ty(&mut sig.return_type);
-            self.set_return_type(return_ty);
-
-            // Analyze the function's body
-            self.analyze_block(&mut f.definition);
-
-            // Store the last VarId associated with the function
-            // The VarId's used by the function are given by the range [beginning, end)
-            f.end_of_vars = self.var_new_id;
-            // Lower the scope
-            self.fall();
-        }
-    }
-
-    fn get_object_id(&self, object_name: &String, pos: usize) -> ObjId {
-        if !self.obj_ids.contains_key(object_name) {
-            self.err_at(pos, format!("Cannot find object by name `{}`", object_name));
-        }
-
-        self.obj_ids[object_name]
-    }
-
-    fn get_member_function_signature(&self,
-                                     obj_ty: Ty,
-                                     fn_name: &String,
-                                     pos: usize)
-                                     -> FnSignature {
-        match self.real_ty(obj_ty) {
-            &AnalyzeType::Object(obj_id) => {
-                let obj_skeleton = &self.obj_skeletons[&obj_id];
-
-                if !obj_skeleton.member_functions.contains_key(fn_name) {
-                    self.err_at(pos,
-                                format!("Object `{}` has no member function `{}`",
-                                        obj_skeleton.name,
-                                        fn_name));
+            if check_result.is_ok() {
+                if candidate_fn.is_some() {
+                    set.reset_ty_checkpoint();
+                    self.error()?;
                 }
 
-                obj_skeleton.member_functions[fn_name].clone()
+                candidate_fn = Some(fn_sig);
             }
-            _ => self.err_at(pos, format!("Cannot determine type for object call")),
-        }
-    }
 
-    fn get_static_function_signature(&self,
-                                     obj_name: &String,
-                                     fn_name: &String,
-                                     pos: usize)
-                                     -> FnSignature {
-        let obj_id = self.get_object_id(obj_name, pos);
-        let obj_skeleton = &self.obj_skeletons[&obj_id];
-
-        if !obj_skeleton.static_functions.contains_key(fn_name) {
-            self.err_at(pos,
-                        format!("Object `{}` has no static function `{}`", obj_name, fn_name));
+            self.reset_ty_checkpoint();
         }
 
-        obj_skeleton.static_functions[fn_name].clone()
-    }
-
-    /// Raises the variable scope up one level.
-    /// (i.e. enter a block or other context where variables are unique)
-    fn raise(&mut self) {
-        self.var_ids.push(HashMap::new());
-    }
-
-    /// Lower the variable scope one level.
-    fn fall(&mut self) {
-        self.var_ids.pop();
-    }
-
-    /// Declare a variable with a specific type in the variable scope, assigning to it a unique VarId
-    fn declare_variable(&mut self, name: &String, ty: Ty, pos: usize) -> VarId {
-        let id = self.var_new_id;
-        self.var_new_id += 1;
-
-        if self.var_ids.last_mut().unwrap().contains_key(name) {
-            self.err_at(pos,
-                        format!("Variable with name `{}` already declared in scope", name));
+        if candidate_fn.is_none() {
+            self.error();
         }
 
-        self.var_ids.last_mut().unwrap().insert(name.clone(), id);
-        self.var_tys.insert(id, ty);
-
-        id
+        self.check_fn(candidate_fn.unwrap(), generics, args)
     }
 
-    /// Get the VarId associated with a name in the highest scope (due to variable shadowing)
-    fn get_variable_id(&mut self, name: &String, pos: usize) -> VarId {
-        for scope in self.var_ids.iter().rev() {
-            if scope.contains_key(name) {
-                return scope[name];
-            }
+    fn check_requirements(&mut self, replacements: HashMap<TyVarId, Ty>, reqs: Vec<AnalyzeRequirement>, depth: u32) -> AnalyzeResult<()> {
+        if depth == 0 {
+            return self.error();
         }
 
-        self.err_at(pos,
-                    format!("Variable with name `{}` not declared in scope", name));
-    }
+        for req in reqs {
+            let ty = replacements[&reqs.ty_var];
+            let trt = self.replace_ty(reqs.trt, replacements);
+            let trait_id = self.get_trait_id(trt);
 
-    /// Get the Ty associated with a VarId
-    fn get_variable_type(&mut self, var_id: VarId) -> Ty {
-        self.var_tys[&var_id]
-    }
+            let mut satisfied = false;
 
-    /// Get a function signature
-    fn get_function_signature(&mut self, name: &String, pos: usize) -> FnSignature {
-        if !self.fn_signatures.contains_key(name) {
-            self.err_at(pos, format!("Function with name `{}` not declared", name));
-        }
-
-        self.fn_signatures.get(name).unwrap().clone() //TODO: add error panic!("")
-    }
-
-    /// Set expected return type
-    fn set_return_type(&mut self, return_ty: Ty) {
-        self.return_ty = return_ty;
-    }
-
-    /// Get expected return type
-    fn get_return_type(&self) -> Ty {
-        self.return_ty
-    }
-
-    /// Convert an AstType from parsing into a Ty id for use in Analyzer
-    fn initialize_ty(&mut self, ast_ty: &AstType) -> Ty {
-        let ty_id = self.ty_new_id;
-        self.ty_new_id += 1;
-
-        let analyze_ty = match ast_ty {
-            &AstType::Infer => AnalyzeType::Infer,
-            &AstType::None => AnalyzeType::Nothing,
-            &AstType::Int => AnalyzeType::Int,
-            &AstType::UInt => AnalyzeType::UInt,
-            &AstType::Float => AnalyzeType::Float,
-            &AstType::Char => AnalyzeType::Char,
-            &AstType::Bool => AnalyzeType::Boolean,
-            &AstType::String => AnalyzeType::String,
-            &AstType::Array { ref ty } => {
-                let inner_ty = self.initialize_ty(ty.as_ref());
-                AnalyzeType::Array(inner_ty)
-            }
-            &AstType::Tuple { ref types } => {
-                let tuple_tys: Vec<_> = types.iter().map(|t| self.initialize_ty(t)).collect();
-                AnalyzeType::Tuple(tuple_tys)
-            }
-            &AstType::Object(ref object, pos) => {
-                if !self.obj_ids.contains_key(object) {
-                    self.err_at(pos, format!("Unknown object by name `{}`", object));
+            for imp in self.impls {
+                if imp.trait_id != trait_id {
+                    continue;
                 }
 
-                AnalyzeType::Object(self.obj_ids[object])
+                let imp_replacements: HashMap<_, _> = imp.generic_tys.map(|t| (t, self.new_infer_ty())).collect();
+                let imp_ty = self.replace_ty(imp.ty, imp_replacements);
+                let imp_trt = self.replace_ty(imp.trt, imp_replacements);
+
+                if self.union_right(ty, imp_ty).is_err()
+                    || self.union_right(trt, imp_trt).is_err() || self.check_requirements(impl_replacements, imp.reqs, depth - 1).is_err() {
+                    continue;
+                }
+
+                satisfied = true;
+                break;
             }
+
+            if !satisfied {
+                return self.error();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_fn_sig(&self, name: &String) -> AnalyzeResult<FnSignature> {
+        self.fns.get(name).ok_or_else(|| self.error()) //TODO: pos
+    }
+
+    fn get_obj_fn_sigs(&self, obj_ty: Ty, name: &String, is_member_fn: bool) -> Result<Vec<FnSignature>> {
+        let sigs = Vec::new();
+        let candidate_trt = None;
+
+        for imp in self.impls {
+            if self.trait_has_function(imp.trait_id, name, is_member_fn) {
+                if let Some(trait_ty) = self.match_ty_impl(obj_ty, imp) {
+                    let fn_sig = self.get_trait_function(trait_ty, name);
+
+                    if let Some(trait_id) = candidate_trt {
+                        if trait_id != imp.trait_id {
+                            self.error()?;
+                        }
+                    }
+
+                    candidate_trt = Some(imp.trait_id);
+                    sigs.push(fn_sig)
+                }
+            }
+        }
+
+        Ok(sigs)
+    }
+
+    fn match_ty_impl(&mut self, obj_ty: Ty, imp: &AnalyzeImpl) -> Option<Ty> { //TODO: Result??
+        let replacements: HashMap<_, _> = imp.generic_ids.iter().map(|t| (t, self.new_infer_ty())).collect();
+        let repl_impl_ty = self.replace_ty(imp.impl_ty, replacements);
+
+        if self.union_right(obj_ty, repl_impl_ty).is_err() {
+            return None;
+        }
+
+        if self.check_requirements(replacements, imp.requirements, MAX_IMPL_SEARCH_DEPTH).is_err() {
+            return None;
+        }
+
+        //I don't believe I need to reset the checkpoint...
+        self.replace_ty(imp.trait_ty, replacements)
+    }
+
+    fn make_object_ty(&mut self, name: &String, generics: &Vec<Ty>) -> Ty {
+        if self.fn_generics.contains_key(name) {
+            if generics.len() != 0 {
+                self.error()?;
+            }
+
+            return self.register_analyze_ty(AnalyzeType::TypeVariable(self.fn_generics[name]));
+        }
+
+        if self.obj_generics.contains_key(name) {
+            if generics.len() != 0 {
+                self.error();
+            }
+
+            return self.register_analyze_ty(AnalyzeType::TypeVariable(self.obj_generics[name]));
+        }
+
+        let obj_skeleton = self.obj_skeletons.get(name).ok_or_else(|| self.error())?;
+
+        if obj_skeleton.generic_ids.len() != generics.len() {
+            self.error()?;
+        }
+
+        self.register_analyze_ty(AnalyzeType::Object(obj_skeleton.id, generics.clone()))
+    }
+
+    fn replace_ty(ty: Ty, replacements: HashMap<TyVarId, Ty>) -> Ty {
+        let repl_ty = match &self.tys[ty] {
+            &AstType::Infer => AstType::Infer,
+            &AstType::NullInfer => AstType::NullInfer,
+
+            &AstType::Nothing => AstType::Nothing,
+            &AstType::Boolean => AstType::Boolean,
+            &AstType::Int => AstType::Int,
+            &AstType::UInt => AstType::UInt,
+            &AstType::Float => AstType::Float,
+            &AstType::Char => AstType::Char,
+            &AstType::String => AstType::String,
+            &AstType::Tuple(ref inner_tys) => AstType::Tuple(inner_tys.iter().map(|t| self.replace_ty(t, replacements))),
+            &AstType::Array(inner_ty) => AstType::Array(self.replace_ty(inner_ty)),
+            &AstType::Object(obj_id) => AstType::Object(obj_id),
+            &AstType::TyVar(var_id) => {
+                if replacements.contains_key(var_id) {
+                    AstType::Same(replacements[&var_id])
+                } else {
+                    AstType::TyVar(var_id)
+                }
+            }
+
+            AstType::Same(same_ty) => AstType::Same(self.replace_ty(same_ty)),
         };
 
-        self.ty_map.insert(ty_id, analyze_ty);
-        ty_id
+        self.register_analyze_ty(repl_ty)
     }
 
-    /// Make a new Ty associated (initially) with the `_` Infer type.
-    fn new_infer_ty(&mut self) -> Ty {
-        self.initialize_ty(&mut AstType::Infer)
-    }
-
-    /// Make a new Ty associated with the "NullInfer" type.
-    /// The NullInfer type can be unioned with any type that is nullable (array, string).
-    fn new_null_infer_ty(&mut self) -> Ty {
-        let ty_id = self.ty_new_id;
-        self.ty_new_id += 1;
-        self.ty_map.insert(ty_id, AnalyzeType::NullInfer);
-
-        ty_id
-    }
-
-    /// Make a new Ty representing a tuple containing all of the passed Tys
-    fn make_tuple_ty(&mut self, tys: Vec<Ty>) -> Ty {
-        let ty_id = self.ty_new_id;
-        self.ty_new_id += 1;
-
-        self.ty_map.insert(ty_id, AnalyzeType::Tuple(tys)); //TODO: expect none
-        ty_id
-    }
-
-    /// Make an array Ty with the inner type given by inner_ty
-    fn make_array_ty(&mut self, inner_ty: Ty) -> Ty {
-        let ty_id = self.ty_new_id;
-        self.ty_new_id += 1;
-
-        self.ty_map.insert(ty_id, AnalyzeType::Array(inner_ty));
-        ty_id
-    }
-
-    fn make_object_ty(&mut self, obj_id: ObjId) -> Ty {
-        let ty_id = self.ty_new_id;
-        self.ty_new_id += 1;
-
-        self.ty_map.insert(ty_id, AnalyzeType::Object(obj_id));
-        ty_id
-    }
-
-    /** Union two types
-      *
-      * Unioning two types ensures that they're "essentially" the same type after union.
-      * Usually this means setting Infers to agree with the other type, or making sure
-      * that two definite types are identical.
-      */
-    fn union_ty(&mut self, ty1: Ty, ty2: Ty, pos: usize) {
+    fn union_ty(&mut self, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         if ty1 == ty2 {
-            return;
+            return Ok(());
         }
-
-        // TODO: use real_ty()
 
         // If ty1 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
-            self.union_ty(ty1_same, ty2, pos);
-            return;
+            return self.union_ty(ty1_same, ty2, pos);
         }
 
         // If ty2 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty2_same) = self.ty_map[&ty2] {
-            self.union_ty(ty1, ty2_same, pos);
-            return;
+            return self.union_ty(ty1, ty2_same, pos);
         }
 
-        match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) {
-            // Infer can union with any type, and make it into a Same
+        match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) { //TODO: :(
             (AnalyzeType::Infer, _) => {
-                self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
+                self.set_ty(ty1, AnalyzeType::Same(ty2));
             }
             (_, AnalyzeType::Infer) => {
-                self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
+                self.set_ty(ty2, AnalyzeType::Same(ty1));
             }
             // NullInfer can union with any *nullable* type
             (AnalyzeType::NullInfer, t) => {
@@ -783,7 +297,7 @@ impl<'a> Analyzer<'a> {
                                 format!("`null` may only be assigned to types which are \
                                          nullable."));
                 }
-                self.ty_map.insert(ty1, AnalyzeType::Same(ty2));
+                self.set_ty(ty1, AnalyzeType::Same(ty2));
             }
             (t, AnalyzeType::NullInfer) => {
                 if !self.is_nullable(&t) {
@@ -791,9 +305,8 @@ impl<'a> Analyzer<'a> {
                                 format!("`null` may only be assigned to types which are \
                                          nullable."));
                 }
-                self.ty_map.insert(ty2, AnalyzeType::Same(ty1));
+                self.set_ty(ty2, AnalyzeType::Same(ty1));
             }
-            // Duplicates can union without action...
             (AnalyzeType::Nothing, AnalyzeType::Nothing) |
             (AnalyzeType::Boolean, AnalyzeType::Boolean) |
             (AnalyzeType::Int, AnalyzeType::Int) |
@@ -810,139 +323,147 @@ impl<'a> Analyzer<'a> {
                                 format!("Cannot consolidate tuple types of varying lengths"));
                 }
                 for i in 0..ty1_tys.len() {
-                    self.union_ty(ty1_tys[i], ty2_tys[i], pos);
+                    self.union_ty(ty1_tys[i], ty2_tys[i])?;
                 }
             }
             // Arrays union if their inner types union as well
             (AnalyzeType::Array(inner_ty1), AnalyzeType::Array(inner_ty2)) => {
-                self.union_ty(inner_ty1, inner_ty2, pos);
+                self.union_ty(inner_ty1, inner_ty2)?;
             }
             // Object types
-            (AnalyzeType::Object(obj_ty1), AnalyzeType::Object(obj_ty2)) => {
+            (AnalyzeType::Object(obj_ty1, generics1), AnalyzeType::Object(obj_ty2, generics2)) => {
                 if obj_ty1 != obj_ty2 {
                     self.err_at(pos, format!("Differing object types when consolidating"));
                 }
-            }
-            // Otherwise, welp!
-            _ => self.err_at(pos, format!("Cannot consolidate types")),
-        }
-    }
 
-    fn real_ty(&self, ty: Ty) -> &AnalyzeType {
-        match &self.ty_map[&ty] {
-            &AnalyzeType::Same(same_ty) => self.real_ty(same_ty),
-            t => t,
-        }
-    }
-
-    // Return true if type can be assigned null (currently String and arrays)
-    fn is_nullable(&self, ty: &AnalyzeType) -> bool {
-        match ty {
-            &AnalyzeType::String |
-            &AnalyzeType::Array(_) |
-            &AnalyzeType::Object(_) => true,
-            _ => false,
-        }
-    }
-
-    // Extract the type that the array stores
-    fn extract_array_inner_ty(&self, array_ty: Ty, pos: usize) -> Ty {
-        match self.real_ty(array_ty) {
-            &AnalyzeType::Array(inner_ty) => inner_ty,
-            _ => self.err_at(pos, format!("Cannot extract array type")),
-        }
-    }
-
-    // Extract the tuple's member type at idx, or panic if out of bounds
-    fn extract_tuple_inner_ty(&self, tuple_ty: Ty, idx: u32, pos: usize) -> Ty {
-        match self.real_ty(tuple_ty) {
-            &AnalyzeType::Tuple(ref tys) => {
-                if tys.len() <= (idx as usize) {
-                    self.err_at(pos, format!("Tuple access out of bounds"))
-                } else {
-                    tys[idx as usize]
+                for gen_ty1, gen_ty2 in generics.iter().zip(generics2) {
+                    self.union_ty(gen_ty1, gen_ty2)?;
                 }
             }
-            _ => self.err_at(pos, format!("Cannot extract tuple type")),
+            (AnalyzeType::TypeVariable(tv1), AnalyzeType::TypeVariable(tv2)) => {
+                if tv1 != tv2 {
+                    self.error();
+                }
+            }
+            _ => self.error()?,
         }
     }
 
-    fn extract_object_member_ty(&self, obj_ty: Ty, member: &String, pos: usize) -> Ty {
-        match self.real_ty(obj_ty) {
-            &AnalyzeType::Object(obj_id) => {
-                let obj_skeleton = &self.obj_skeletons[&obj_id];
+    fn union_ty_right(&mut self, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
+        if ty1 == ty2 {
+            return Ok(());
+        }
 
-                if !obj_skeleton.member_ids.contains_key(member) {
+        // If ty1 is Same, then union the referenced type instead
+        if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
+            return self.union_ty_right(ty1_same, ty2, pos);
+        }
+
+        // If ty2 is Same, then union the referenced type instead
+        if let AnalyzeType::Same(ty2_same) = self.ty_map[&ty2] {
+            return self.union_ty_right(ty1, ty2_same, pos);
+        }
+
+        match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) { //TODO: :(
+            (_, AnalyzeType::Infer) => {
+                self.set_ty(ty2, AnalyzeType::Same(ty1));
+            }
+            (t, AnalyzeType::NullInfer) => {
+                if !self.is_nullable(&t) {
                     self.err_at(pos,
-                                format!("Cannot access object member by name `{}`", member));
+                                format!("`null` may only be assigned to types which are \
+                                         nullable."));
                 }
-
-                obj_skeleton.member_tys[obj_skeleton.member_ids[member] as usize] //TODO: wonky
+                self.set_ty(ty2, AnalyzeType::Same(ty1));
             }
-            _ => {
-                self.err_at(pos,
-                            format!("Cannot determine object type of left-hand side"))
+            (AnalyzeType::Nothing, AnalyzeType::Nothing) |
+            (AnalyzeType::Boolean, AnalyzeType::Boolean) |
+            (AnalyzeType::Int, AnalyzeType::Int) |
+            (AnalyzeType::UInt, AnalyzeType::UInt) |
+            (AnalyzeType::Float, AnalyzeType::Float) |
+            (AnalyzeType::Char, AnalyzeType::Char) |
+            (AnalyzeType::String, AnalyzeType::String) => {
+                // Do nothing.
             }
-        }
-    }
-
-    fn extract_object_member_idx(&self, obj_ty: Ty, member: &String, pos: usize) -> MemberId {
-        match self.real_ty(obj_ty) {
-            &AnalyzeType::Object(obj_id) => {
-                let obj_skeleton = &self.obj_skeletons[&obj_id];
-
-                if !obj_skeleton.member_ids.contains_key(member) {
+            // Tuples union if they're the same length and the sub-types union as well.
+            (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
+                if ty1_tys.len() != ty2_tys.len() {
                     self.err_at(pos,
-                                format!("Cannot access object member by name `{}`", member));
+                                format!("Cannot consolidate tuple types of varying lengths"));
+                }
+                for i in 0..ty1_tys.len() {
+                    self.union_ty_right(ty1_tys[i], ty2_tys[i])?;
+                }
+            }
+            // Arrays union if their inner types union as well
+            (AnalyzeType::Array(inner_ty1), AnalyzeType::Array(inner_ty2)) => {
+                self.union_ty_right(inner_ty1, inner_ty2)?;
+            }
+            // Object types
+            (AnalyzeType::Object(obj_ty1, generics1), AnalyzeType::Object(obj_ty2, generics2)) => {
+                if obj_ty1 != obj_ty2 {
+                    self.err_at(pos, format!("Differing object types when consolidating"));
                 }
 
-                obj_skeleton.member_ids[member]
+                for gen_ty1, gen_ty2 in generics.iter().zip(generics2) {
+                    self.union_ty_right(gen_ty1, gen_ty2)?;
+                }
             }
-            _ => {
-                self.err_at(pos,
-                            format!("Cannot determine object type of left-hand side"))
+            (AnalyzeType::TypeVariable(tv1), AnalyzeType::TypeVariable(tv2)) => {
+                if tv1 != tv2 {
+                    self.error();
+                }
+            }
+            _ => self.error()?,
+        }
+    }
+
+    fn new_infer_ty(&mut self) -> Ty {
+        self.register_analyze_ty(AnalyzeType::Infer);
+    }
+
+    fn register_analyze_ty(&mut self, aty: AnalyzeType) -> Ty {
+        let id = self.ty_id_count.next().unwrap();
+
+        self.tys.insert(id, aty);
+        self.ty_history.insert(id, None);
+    }
+
+    fn set_ty(&mut self, ty: Ty, aty: AnalyzeType) {
+        let old = self.tys.insert(ty, aty);
+        if !self.ty_history.contains_key(ty) {
+            self.ty_history.insert(id, old); //OMG, 10/10
+        }
+    }
+
+    fn set_ty_checkpoint(&mut self) -> AnalyzeResult<()> {
+        if self.ty_history.len() != 0 {
+            self.error();
+        }
+
+        Ok(())
+    }
+
+    fn reset_ty_checkpoint(&mut self) -> AnalyzeResult<()> {
+        for (id, old) in self.ty_history.drain(..) {
+            if let Some(old_ty) = old {
+                self.tys.insert(id, old_ty);
+            } else {
+                //None, remove.
+                self.tys.remove(id);
             }
         }
+
+        Ok(())
     }
+}
 
-    fn is_boolean_ty(&self, ty: Ty) -> bool {
-        match self.real_ty(ty) {
-            &AnalyzeType::Boolean => true,
-            _ => false,
-        }
-    }
+fn map_vec<T, K>(vec: &Vec<T>, fun: F) -> Vec<K>
+    where F: Fn(&T) -> K {
+    vec.iter().map(f).collect()
+}
 
-    fn is_integral_ty(&self, ty: Ty) -> bool {
-        match self.real_ty(ty) {
-            &AnalyzeType::Int |
-            &AnalyzeType::UInt => true,
-            _ => false,
-        }
-    }
-
-    fn is_numeric_ty(&self, ty: Ty) -> bool {
-        match self.real_ty(ty) {
-            &AnalyzeType::Int |
-            &AnalyzeType::UInt |
-            &AnalyzeType::Float => true,
-            _ => false,
-        }
-    }
-
-    fn err_at(&self, pos: usize, err: String) -> ! {
-        let fr = self.file.as_ref().unwrap();
-        let (line, col) = fr.get_row_col(pos);
-        let line_str = fr.get_line_from_pos(pos);
-
-        println!("");
-        // TODO: fix tabs later
-        println!("Error \"{}\" encountered on line {}:", err, line + 1); //TODO: in file
-
-        println!("| {}", line_str);
-        for _ in 0..(col + 2) {
-            print!("-");
-        }
-        println!("^");
-        exit(1);
-    }
+fn map_vec_unwrap<T, E, F, K>(vec: Vec<T>, fun: F) -> Result<Vec<K>, E>
+    where F: Fn(&T) -> Result<K, E> {
+    vec.iter().map(fun).collect()
 }
