@@ -23,10 +23,20 @@ impl Analyzer {
         let ParseFile { file, mut objects, functions, export_fns, traits, impls } = f;
 
         for obj in &mut objects {
-            obj.id = self.obj_new_id;
-            self.obj_new_id += 1;
+            obj.id = self.obj_id_count.next();
             self.obj_ids.insert(obj.name.clone(), obj.id);
             self.obj_names.insert(obj.id, obj.name.clone());
+        }
+
+        for trt in &mut traits {
+            trt.id = self.trt_id_count.next();
+            self.trt_ids.insert(trt.name.clone(), trt.id);
+            self.trt_names.insert(trt.id, trt.name.clone());
+        }
+
+        for trt in &traits {
+            let analyze_trt = self.initialize_trait(trt);
+            self.trt_skeletons.insert(trt.id, analyze_trt);
         }
 
         for obj in &objects {
@@ -34,7 +44,26 @@ impl Analyzer {
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
 
+        for imp in impls {
+            let analyze_impl = self.initialize_impl(imp);
+            self.impls.insert(analyze_impl);
+        }
 
+        for trt in self.trt_skeletons {
+            self.init_integrity_trt(trt);
+        }
+
+        for obj in self.obj_skeletons {
+            self.init_integrity_obj(obj);
+        }
+
+        for trt in self.trt_skeletons {
+            self.check_integrity_trt(trt);
+        }
+
+        for obj in self.obj_skeletons {
+            self.check_integrity_obj(obj);
+        }
     }
 
     fn check_expr(node: &mut AstExpression, expect_ty: Option<Ty>) -> AnalyzeResult<Ty> {
@@ -47,14 +76,21 @@ impl Analyzer {
                 let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
                 self.check_fn(fn_sig, gen_tys, arg_tys)?
             }
-            &mut AstExpressionData::ObjectCall { ref object, ref fn_name, ref generics, ref mut args } => {
+            &mut AstExpressionData::ObjectCall { ref object,
+                                                 ref fn_name,
+                                                 ref generics,
+                                                 ref mut args } => {
                 let obj_ty = self.check_expr(object);
                 let (fn_sigs, trait_id) = self.get_obj_fn_sigs(obj_ty, fn_name, true); //true = member
                 let gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
                 let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
                 self.check_obj_fns(fn_sigs, gen_tys, arg_tys, expect_ty)?
             }
-            &mut AstExpressionData::StaticCall { ref obj_name, ref mut obj_generics, ref fn_name, ref mut fn_generics, ref mut args } => {
+            &mut AstExpressionData::StaticCall { ref obj_name,
+                                                 ref mut obj_generics,
+                                                 ref fn_name,
+                                                 ref mut fn_generics,
+                                                 ref mut args } => {
                 let obj_gen_tys: Vec<_> = map_vec(obj_generics, |t| self.init_ty(t));
                 let obj_ty = self.make_object_ty(obj_name, obj_gen_tys);
                 let (fn_sigs, trait_id) = self.get_obj_fn_sigs(obj_ty, fn_name, false); //false = static
@@ -67,7 +103,11 @@ impl Analyzer {
         Ok(*ty)
     }
 
-    fn check_fn(fn_sig: FnSignature, generics: &mut Vec<Ty>, args: Vec<Ty>, return_hint: Option<Ty>) -> AnalyzeResult<Ty> {
+    fn check_fn(fn_sig: FnSignature,
+                generics: &mut Vec<Ty>,
+                args: Vec<Ty>,
+                return_hint: Option<Ty>)
+                -> AnalyzeResult<Ty> {
         if generics.len() == 0 && fn_sig.generic_ids.len() != 0 {
             for _ in 0..fn_sig.generic_ids.len() {
                 generics.push(self.new_infer_ty());
@@ -80,7 +120,7 @@ impl Analyzer {
 
         let replacements: HashMap<_, _> = fn_sig.generic_ids.iter().zip(generics).collect();
 
-        for expect_ty, arg_ty in fn_sig.params.iter().zip(args) {
+        for (expect_ty, arg_ty) in fn_sig.params.iter().zip(args) {
             let repl_expect_ty = self.replace_ty(expect_ty, replacements);
 
             self.union_ty(repl_expect_ty, arg_ty);
@@ -92,10 +132,15 @@ impl Analyzer {
             self.union_ty(expect_return_ty, repl_return_ty)
         }
 
-        self.check_requirements(replacements, fn_sig.reqs, MAX_IMPL_SEARCH_DEPTH).and(Ok(repl_return_ty))
+        self.check_requirements(replacements, fn_sig.reqs, MAX_IMPL_SEARCH_DEPTH)
+            .and(Ok(repl_return_ty))
     }
 
-    fn check_fns(fn_sigs: Vec<FnSignature>, generics: &mut Vec<Ty>, args: Vec<Ty>, return_hint: Option<Ty>) -> AnalyzeResult<Ty> {
+    fn check_fns(fn_sigs: Vec<FnSignature>,
+                 generics: &mut Vec<Ty>,
+                 args: Vec<Ty>,
+                 return_hint: Option<Ty>)
+                 -> AnalyzeResult<Ty> {
         if generics.len() == 0 && fn_sig.generic_ids.len() != 0 {
             for _ in 0..fn_sig.generic_ids.len() {
                 generics.push(self.new_infer_ty());
@@ -131,7 +176,11 @@ impl Analyzer {
         self.check_fn(candidate_fn.unwrap(), generics, args)
     }
 
-    fn check_requirements(&mut self, replacements: HashMap<TyVarId, Ty>, reqs: Vec<AnalyzeRequirement>, depth: u32) -> AnalyzeResult<()> {
+    fn check_requirements(&mut self,
+                          replacements: HashMap<TyVarId, Ty>,
+                          reqs: Vec<AnalyzeRequirement>,
+                          depth: u32)
+                          -> AnalyzeResult<()> {
         if depth == 0 {
             return self.error();
         }
@@ -148,12 +197,14 @@ impl Analyzer {
                     continue;
                 }
 
-                let imp_replacements: HashMap<_, _> = imp.generic_tys.map(|t| (t, self.new_infer_ty())).collect();
+                let imp_replacements: HashMap<_, _> =
+                    imp.generic_tys.map(|t| (t, self.new_infer_ty())).collect();
                 let imp_ty = self.replace_ty(imp.ty, imp_replacements);
                 let imp_trt = self.replace_ty(imp.trt, imp_replacements);
 
-                if self.union_right(ty, imp_ty).is_err()
-                    || self.union_right(trt, imp_trt).is_err() || self.check_requirements(impl_replacements, imp.reqs, depth - 1).is_err() {
+                if self.union_right(ty, imp_ty).is_err() ||
+                   self.union_right(trt, imp_trt).is_err() ||
+                   self.check_requirements(impl_replacements, imp.reqs, depth - 1).is_err() {
                     continue;
                 }
 
@@ -173,7 +224,11 @@ impl Analyzer {
         self.fns.get(name).ok_or_else(|| self.error()) //TODO: pos
     }
 
-    fn get_obj_fn_sigs(&self, obj_ty: Ty, name: &String, is_member_fn: bool) -> Result<Vec<FnSignature>> {
+    fn get_obj_fn_sigs(&self,
+                       obj_ty: Ty,
+                       name: &String,
+                       is_member_fn: bool)
+                       -> Result<Vec<FnSignature>> {
         let sigs = Vec::new();
         let candidate_trt = None;
 
@@ -197,8 +252,10 @@ impl Analyzer {
         Ok(sigs)
     }
 
-    fn match_ty_impl(&mut self, obj_ty: Ty, imp: &AnalyzeImpl) -> Option<Ty> { //TODO: Result??
-        let replacements: HashMap<_, _> = imp.generic_ids.iter().map(|t| (t, self.new_infer_ty())).collect();
+    fn match_ty_impl(&mut self, obj_ty: Ty, imp: &AnalyzeImpl) -> Option<Ty> {
+        // TODO: Result??
+        let replacements: HashMap<_, _> =
+            imp.generic_ids.iter().map(|t| (t, self.new_infer_ty())).collect();
         let repl_impl_ty = self.replace_ty(imp.impl_ty, replacements);
 
         if self.union_right(obj_ty, repl_impl_ty).is_err() {
@@ -209,7 +266,7 @@ impl Analyzer {
             return None;
         }
 
-        //I don't believe I need to reset the checkpoint...
+        // I don't believe I need to reset the checkpoint...
         self.replace_ty(imp.trait_ty, replacements)
     }
 
@@ -251,7 +308,9 @@ impl Analyzer {
             &AstType::Float => AstType::Float,
             &AstType::Char => AstType::Char,
             &AstType::String => AstType::String,
-            &AstType::Tuple(ref inner_tys) => AstType::Tuple(inner_tys.iter().map(|t| self.replace_ty(t, replacements))),
+            &AstType::Tuple(ref inner_tys) => {
+                AstType::Tuple(inner_tys.iter().map(|t| self.replace_ty(t, replacements)))
+            }
             &AstType::Array(inner_ty) => AstType::Array(self.replace_ty(inner_ty)),
             &AstType::Object(obj_id) => AstType::Object(obj_id),
             &AstType::TyVar(var_id) => {
@@ -336,7 +395,7 @@ impl Analyzer {
                     self.err_at(pos, format!("Differing object types when consolidating"));
                 }
 
-                for gen_ty1, gen_ty2 in generics.iter().zip(generics2) {
+                for (gen_ty1, gen_ty2) in generics.iter().zip(generics2) {
                     self.union_ty(gen_ty1, gen_ty2)?;
                 }
             }
@@ -405,7 +464,7 @@ impl Analyzer {
                     self.err_at(pos, format!("Differing object types when consolidating"));
                 }
 
-                for gen_ty1, gen_ty2 in generics.iter().zip(generics2) {
+                for (gen_ty1, gen_ty2) in generics.iter().zip(generics2) {
                     self.union_ty_right(gen_ty1, gen_ty2)?;
                 }
             }
@@ -416,6 +475,27 @@ impl Analyzer {
             }
             _ => self.error()?,
         }
+    }
+
+    fn initialize_trait(&mut self, trt: &AstTrait) -> AnalyzeTrait {
+        if self.generics.insert(name, self.ty_id_count.next()).is_some() {
+            self.error()?;
+        }
+
+        let generic_tys: Vec<_> = trt.generics.iter().map(|t| self.generics[t]).collect();
+        let mem_fns = HashMap::new();
+        let static_fns = HashMap::new();
+
+        for fun in trt.functions {
+            if mem_fns.contains_key(fun.name) || static_fns.contains_key(fun.name) {
+                // TODO: die
+            }
+
+            if fun.has_self { &mem_fns } else { &static_fns }
+                .insert(fun.name.clone(), self.initialize_object_function(fun));
+        }
+
+        AnalyzeTrait::new(generic_tys, mem_fns, static_fns)
     }
 
     fn new_infer_ty(&mut self) -> Ty {
@@ -449,7 +529,7 @@ impl Analyzer {
             if let Some(old_ty) = old {
                 self.tys.insert(id, old_ty);
             } else {
-                //None, remove.
+                // None, remove.
                 self.tys.remove(id);
             }
         }
@@ -459,11 +539,13 @@ impl Analyzer {
 }
 
 fn map_vec<T, K>(vec: &Vec<T>, fun: F) -> Vec<K>
-    where F: Fn(&T) -> K {
+    where F: Fn(&T) -> K
+{
     vec.iter().map(f).collect()
 }
 
 fn map_vec_unwrap<T, E, F, K>(vec: Vec<T>, fun: F) -> Result<Vec<K>, E>
-    where F: Fn(&T) -> Result<K, E> {
+    where F: Fn(&T) -> Result<K, E>
+{
     vec.iter().map(fun).collect()
 }

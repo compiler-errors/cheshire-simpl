@@ -195,7 +195,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        ParseFile::new(self.lexer.file, functions, export_fns, objects, traits, impls)
+        ParseFile::new(self.lexer.file,
+                       functions,
+                       export_fns,
+                       objects,
+                       traits,
+                       impls)
     }
 
     fn parse_function_signature(&mut self) -> ParseResult<AstFnSignature> {
@@ -208,11 +213,17 @@ impl<'a> Parser<'a> {
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::Dot)?;
 
-        Ok(AstFnSignature::new(pos, fn_name, generics, parameter_list, return_type, restrictions))
+        Ok(AstFnSignature::new(pos,
+                               fn_name,
+                               generics,
+                               parameter_list,
+                               return_type,
+                               restrictions))
     }
 
     /// Parse a single function from the file.
-    fn parse_function(&mut self) -> ParseResult<AstFunction> { //TODO: merge with above fn
+    fn parse_function(&mut self) -> ParseResult<AstFunction> {
+        // TODO: merge with above fn
         let pos = self.pos;
         self.expect_consume(Token::Fn)?;
         let generics = self.try_parse_decl_generics()?;
@@ -222,7 +233,13 @@ impl<'a> Parser<'a> {
         let restrictions = self.try_parse_restrictions()?;
         let definition = self.parse_block()?;
 
-        Ok(AstFunction::new(pos, fn_name, generics, parameter_list, return_type, restrictions, definition))
+        Ok(AstFunction::new(pos,
+                            fn_name,
+                            generics,
+                            parameter_list,
+                            return_type,
+                            restrictions,
+                            definition))
     }
 
     fn try_parse_decl_generics(&mut self) -> ParseResult<Vec<String>> {
@@ -250,7 +267,8 @@ impl<'a> Parser<'a> {
 
         let mut restrictions = Vec::new();
 
-        while !self.check(Token::Comma) || restrictions.len() == 0 { //TODO: prettify
+        while !self.check(Token::Comma) || restrictions.len() == 0 {
+            // TODO: prettify
             if restrictions.len() != 0 {
                 self.expect_consume(Token::Comma)?;
             }
@@ -657,7 +675,7 @@ impl<'a> Parser<'a> {
             }
             &Token::LParen => self.parse_paren_expr(),
             &Token::LSqBracket => self.parse_array_literal(),
-            &Token::Identifier(_) =>self.parse_identifier_expr(),
+            &Token::Identifier(_) => self.parse_identifier_expr(),
             &Token::True => {
                 self.bump();
                 Ok(AstExpression::true_lit(pos))
@@ -730,7 +748,12 @@ impl<'a> Parser<'a> {
             let fn_name = self.expect_get_identifier()?;
             let call_generics = self.try_parse_expr_generics()?;
             let args = self.parse_expr_args()?;
-            Ok(AstExpression::static_call(identifier, obj_generics, fn_name, call_generics, args, pos))
+            Ok(AstExpression::static_call(identifier,
+                                          obj_generics,
+                                          fn_name,
+                                          call_generics,
+                                          args,
+                                          pos))
         } else {
             Ok(AstExpression::identifier(identifier, pos))
         }
@@ -921,7 +944,13 @@ impl<'a> Parser<'a> {
         let return_type = self.try_parse_return_type()?;
         let restrictions = self.try_parse_restrictions()?;
 
-        Ok(AstObjectFnSignature::new(pos, name, generics, has_self, parameters, return_type, restrictions))
+        Ok(AstObjectFnSignature::new(pos,
+                                     name,
+                                     generics,
+                                     has_self,
+                                     parameters,
+                                     return_type,
+                                     restrictions))
     }
 
     fn parse_trait(&mut self) -> ParseResult<AstTrait> {
@@ -954,7 +983,8 @@ impl<'a> Parser<'a> {
         while !self.check_consume(Token::RBrace) {
             let obj_fn = self.parse_object_function()?;
             if obj_fn.signature.restrictions.len() != 0 {
-                self.error_at(obj_fn.signature.pos, format!("Impl functions cannot have restrictions"))?;
+                self.error_at(obj_fn.signature.pos,
+                              format!("Impl functions cannot have restrictions"))?;
             }
             fns.push(obj_fn);
         }

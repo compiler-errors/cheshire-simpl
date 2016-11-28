@@ -19,14 +19,15 @@ impl<'a> ParseFile<'a> {
                export_fns: Vec<AstFnSignature>,
                objects: Vec<AstObject>,
                traits: Vec<AstTrait>,
-               impls: Vec<AstImpl>) -> ParseFile<'a> {
+               impls: Vec<AstImpl>)
+               -> ParseFile<'a> {
         ParseFile {
             file: file,
             functions: functions,
             export_fns: export_fns,
             objects: objects,
             traits: traits,
-            impls: impls
+            impls: impls,
         }
     }
 }
@@ -51,15 +52,16 @@ impl AstFnSignature {
                generics: Vec<String>,
                parameter_list: Vec<AstFnParameter>,
                return_type: AstType,
-               restrictions: Vec<AstTypeRestriction>) -> AstFnSignature {
-       AstFnSignature {
-           pos: pos,
-           name: name,
-           generics: generics,
-           parameter_list: parameter_list,
-           return_type: return_type,
-           restrictions: restrictions
-       }
+               restrictions: Vec<AstTypeRestriction>)
+               -> AstFnSignature {
+        AstFnSignature {
+            pos: pos,
+            name: name,
+            generics: generics,
+            parameter_list: parameter_list,
+            return_type: return_type,
+            restrictions: restrictions,
+        }
     }
 }
 
@@ -490,7 +492,11 @@ impl AstExpression {
         }
     }
 
-    pub fn call(name: String, generics: Vec<AstType>, args: Vec<AstExpression>, pos: usize) -> AstExpression {
+    pub fn call(name: String,
+                generics: Vec<AstType>,
+                args: Vec<AstExpression>,
+                pos: usize)
+                -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Call {
                 name: name,
@@ -664,8 +670,6 @@ pub struct AstObject {
     pub name: String,
     /// The Id associated with the object in Analysis
     pub id: ObjId,
-    /// The functions (both static and member) of the object
-    pub functions: Vec<AstObjectFunction>,
     /// The members that are contained in the object
     pub members: Vec<AstObjectMember>,
 }
@@ -711,7 +715,8 @@ impl AstObjectFnSignature {
                has_self: bool,
                parameter_list: Vec<AstFnParameter>,
                return_type: AstType,
-               restrictions: Vec<AstTypeRestriction>) -> AstObjectFnSignature {
+               restrictions: Vec<AstTypeRestriction>)
+               -> AstObjectFnSignature {
         AstObjectFnSignature {
             pos: pos,
             name: name,
@@ -736,9 +741,7 @@ pub struct AstObjectFunction {
 }
 
 impl AstObjectFunction {
-    pub fn new(sig: AstObjectFnSignature,
-               definition: AstBlock)
-               -> AstObjectFunction {
+    pub fn new(sig: AstObjectFnSignature, definition: AstBlock) -> AstObjectFunction {
         AstObjectFunction {
             signature: sig,
             definition: definition,
@@ -776,12 +779,16 @@ pub struct AstTrait {
 }
 
 impl AstTrait {
-    pub fn new(pos: usize, name: String, generics: Vec<String>, functions: Vec<AstObjectFnSignature>) -> AstTrait {
+    pub fn new(pos: usize,
+               name: String,
+               generics: Vec<String>,
+               functions: Vec<AstObjectFnSignature>)
+               -> AstTrait {
         AstTrait {
             name: name,
             generics: generics,
             functions: functions,
-            pos: pos
+            pos: pos,
         }
     }
 }
@@ -790,7 +797,7 @@ impl AstTrait {
 pub struct AstTypeRestriction {
     pos: usize,
     ty: AstType,
-    trt: AstType
+    trt: AstType,
 }
 
 impl AstTypeRestriction {
@@ -798,7 +805,7 @@ impl AstTypeRestriction {
         AstTypeRestriction {
             pos: pos,
             ty: ty,
-            trt: trt
+            trt: trt,
         }
     }
 }
@@ -814,16 +821,17 @@ pub struct AstImpl {
 
 impl AstImpl {
     pub fn new(pos: usize,
-           generics: Vec<String>,
-           trait_ty: AstType,
-           impl_ty: AstType,
-           fns: Vec<AstObjectFunction>) -> AstImpl {
+               generics: Vec<String>,
+               trait_ty: AstType,
+               impl_ty: AstType,
+               fns: Vec<AstObjectFunction>)
+               -> AstImpl {
         AstImpl {
             pos: pos,
             generics: generics,
             trait_ty: trait_ty,
             impl_ty: impl_ty,
-            fns: fns
+            fns: fns,
         }
     }
 }

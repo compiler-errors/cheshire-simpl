@@ -10,14 +10,14 @@ mod analyzer;
 mod parser;
 mod lexer;
 mod util;
-//mod out;
+// mod out;
 // mod test;
 
-//use analyzer::*;
+// use analyzer::*;
 use parser::Parser;
 use lexer::Lexer;
 use util::FileReader;
-//use out::Out;
+// use out::Out;
 
 fn print_usage(opts: Options) -> ! {
     let brief = "Usage: cheshire CHESHIRE_FILE [options]";
@@ -86,23 +86,23 @@ fn parse_file(file_name: String, ll_out_name: String, exe_out_name: String, emit
     let fr = FileReader::new(&contents);
     let lex = Lexer::new(fr);
     let parse = Parser::new(lex);
-    //let mut analyze = Analyzer::new();
+    // let mut analyze = Analyzer::new();
 
     let parsed_file = parse.parse_file();
-    //analyze.analyze_file(parsed_file);
+    // analyze.analyze_file(parsed_file);
 
-    //Out::out(analyze, ll_out_file);
+    // Out::out(analyze, ll_out_file);
 
     if !emit_llvm {
         fs::remove_file(&exe_out_name);
-        /*let out = Command::new("clang")
-            .arg(&ll_out_name)
-            .arg("cheshire_runtime.c")
-            .arg("-O3")
-            .arg("-o")
-            .arg(&exe_out_name)
-            .spawn()
-            .expect("Failed to invoke clang!");*/
+        // let out = Command::new("clang")
+        // .arg(&ll_out_name)
+        // .arg("cheshire_runtime.c")
+        // .arg("-O3")
+        // .arg("-o")
+        // .arg(&exe_out_name)
+        // .spawn()
+        // .expect("Failed to invoke clang!");
         // arfs::remove_file(&ll_out_name);
     }
 }

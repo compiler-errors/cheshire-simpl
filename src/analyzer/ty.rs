@@ -67,23 +67,17 @@ pub struct AnalyzeObject {
     pub name: String,
     pub member_ids: HashMap<String, MemberId>,
     pub member_tys: Vec<Ty>,
-    pub member_functions: HashMap<String, FnSignature>,
-    pub static_functions: HashMap<String, FnSignature>,
 }
 
 impl AnalyzeObject {
     pub fn new(obj_name: String,
                member_ids: HashMap<String, MemberId>,
-               member_tys: Vec<Ty>,
-               member_functions: HashMap<String, FnSignature>,
-               static_functions: HashMap<String, FnSignature>)
+               member_tys: Vec<Ty>)
                -> AnalyzeObject {
         AnalyzeObject {
             name: obj_name,
             member_ids: member_ids,
-            member_tys: member_tys,
-            member_functions: member_functions,
-            static_functions: static_functions,
+            member_tys: member_tys
         }
     }
 }
