@@ -1,5 +1,5 @@
 use util::FileReader;
-use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId, MemberId};
+use analyzer::{Ty, TY_NOTHING, VarId, StringId, ObjId, TraitId, MemberId};
 
 #[derive(Debug)]
 /// A file that is being parsed, along with the associated
@@ -775,6 +775,7 @@ pub struct AstTrait {
     pub name: String,
     pub generics: Vec<String>,
     pub functions: Vec<AstObjectFnSignature>,
+    pub id: TraitId,
     pub pos: usize,
 }
 
@@ -788,6 +789,7 @@ impl AstTrait {
             name: name,
             generics: generics,
             functions: functions,
+            id: 0,
             pos: pos,
         }
     }

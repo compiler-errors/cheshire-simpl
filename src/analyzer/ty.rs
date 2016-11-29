@@ -3,7 +3,9 @@ use std::collections::HashMap;
 pub type VarId = u32;
 pub type StringId = u32;
 pub type ObjId = u32;
+pub type TraitId = u32;
 pub type MemberId = u32;
+pub type TyVarId = u32;
 pub type Ty = u32;
 
 pub const TY_NOTHING: Ty = 1;
@@ -51,6 +53,7 @@ pub enum AnalyzeType {
 /// FnSignature stores the parameter and return types of a function.
 pub struct FnSignature {
     pub params: Vec<Ty>,
+    pub generic_ids: Vec<TyVarId>,
     pub return_ty: Ty,
 }
 
@@ -80,4 +83,17 @@ impl AnalyzeObject {
             member_tys: member_tys
         }
     }
+}
+
+pub struct AnalyzeImpl {
+
+}
+
+pub struct AnalyzeTrait {
+
+}
+
+pub struct AnalyzeRequirement {
+    pub ty_var: TyVarId,
+    pub trt: Ty
 }

@@ -1,10 +1,13 @@
 mod ty;
 
 pub use self::ty::*;
-use util::FileReader;
+use util::{FileReader, Counter};
 use parser::*;
 use std::collections::HashMap;
 use std::process::exit;
+
+const MAX_IMPL_SEARCH_DEPTH: u32 = 5;
+type AnalyzeResult<T> = Result<T, ()>;
 
 /** The analyzer "module" is mainly concerned with assigning type information and
   * catching final errors (such as type errors), as well as associating each
@@ -15,7 +18,20 @@ use std::process::exit;
   * conversion of local names to global names `fn_name` to `pkg.pkg.fn_name`.
   */
 pub struct Analyzer {
+    tys: HashMap<Ty, AnalyzeType>,
+    ty_history: HashMap<Ty, Option<AnalyzeType>>,
 
+    obj_id_count: Counter,
+    obj_ids: HashMap<String, ObjId>,
+    obj_names: HashMap<ObjId, String>,
+    obj_skeletons: HashMap<ObjId, AnalyzeObject>,
+
+    trt_id_count: Counter,
+    trt_ids: HashMap<String, TraitId>,
+    trt_names: HashMap<TraitId, String>, //TODO: possible not necessary (merge into AnalyzeTrait)
+    trt_skeletons: HashMap<TraitId, AnalyzeTrait>,
+
+    impls: Vec<AnalyzeImpl>, //TODO: possible make a HashMap<TraitId, Vec<AnalyzeImpl>> instead?
 }
 
 impl Analyzer {
@@ -44,68 +60,85 @@ impl Analyzer {
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
 
-        for imp in impls {
+        for imp in &impls {
             let analyze_impl = self.initialize_impl(imp);
-            self.impls.insert(analyze_impl);
+            self.impls.push(analyze_impl);
         }
 
-        for trt in self.trt_skeletons {
+        for (_, trt) in &self.trt_skeletons {
             self.init_integrity_trt(trt);
         }
 
-        for obj in self.obj_skeletons {
+        for (_, obj) in &self.obj_skeletons {
             self.init_integrity_obj(obj);
         }
 
-        for trt in self.trt_skeletons {
-            self.check_integrity_trt(trt);
-        }
-
-        for obj in self.obj_skeletons {
-            self.check_integrity_obj(obj);
+        for imp in &self.impls {
+            self.check_integrity_impl(imp);
         }
     }
 
-    fn check_expr(node: &mut AstExpression, expect_ty: Option<Ty>) -> AnalyzeResult<Ty> {
-        let &AstExpression { ref mut expr, ref mut ty, pos } = node;
+    fn check_expr(&mut self, node: &mut AstExpression, expect_ty: Option<Ty>) -> AnalyzeResult<Ty> {
+        let &mut AstExpression { ref mut expr, ref mut ty, pos } = node;
 
         *ty = match expr {
             &mut AstExpressionData::Call { ref name, ref mut generics, ref mut args } => {
-                let fn_sig = self.get_fn_sig(name);
-                let gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
+                let fn_sig = self.get_fn_sig(name)?;
+                //TODO: store generics
+                let mut gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
                 let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
-                self.check_fn(fn_sig, gen_tys, arg_tys)?
+                self.check_fn(&fn_sig, &mut gen_tys, &arg_tys, expect_ty)?
             }
-            &mut AstExpressionData::ObjectCall { ref object,
+            &mut AstExpressionData::ObjectCall { ref mut object,
                                                  ref fn_name,
                                                  ref generics,
                                                  ref mut args } => {
-                let obj_ty = self.check_expr(object);
-                let (fn_sigs, trait_id) = self.get_obj_fn_sigs(obj_ty, fn_name, true); //true = member
-                let gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
+                let obj_ty = self.check_expr(object, None)?;
+                //TODO: store  generics
+                let (trait_id, fn_sigs) = self.get_obj_fn_sigs(obj_ty, fn_name, true)?; //true = member
+                let mut gen_tys: Vec<_> = map_vec(generics, |t| self.init_ty(t));
+
+                if generics.len() == 0 {
+                    for _ in 0..self.get_generics_len(trait_id, fn_name) {
+                        gen_tys.push(self.new_infer_ty());
+                    }
+                } else if generics.len() != self.get_generics_len(trait_id, fn_name) {
+                    panic!(); //TODO: error
+                }
+
                 let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
-                self.check_obj_fns(fn_sigs, gen_tys, arg_tys, expect_ty)?
+                self.check_fns(&fn_sigs, &mut gen_tys, &arg_tys, expect_ty)?
             }
             &mut AstExpressionData::StaticCall { ref obj_name,
                                                  ref mut obj_generics,
                                                  ref fn_name,
                                                  ref mut fn_generics,
                                                  ref mut args } => {
-                let obj_gen_tys: Vec<_> = map_vec(obj_generics, |t| self.init_ty(t));
+                let mut obj_gen_tys: Vec<_> = map_vec(obj_generics, |t| self.init_ty(t));
                 let obj_ty = self.make_object_ty(obj_name, obj_gen_tys);
-                let (fn_sigs, trait_id) = self.get_obj_fn_sigs(obj_ty, fn_name, false); //false = static
-                let fn_gen_tys: Vec<_> = map_vec(fn_generics, |t| self.init_ty(t));
+                let (trait_id, fn_sigs) = self.get_obj_fn_sigs(obj_ty, fn_name, false)?; //false = static
+                //TODO: store generics (for both...)
+                let mut fn_gen_tys: Vec<_> = map_vec(fn_generics, |t| self.init_ty(t));
+
+                if fn_generics.len() == 0 {
+                    for _ in 0..self.get_generics_len(trait_id, fn_name) {
+                        fn_gen_tys.push(self.new_infer_ty());
+                    }
+                } else if fn_generics.len() != self.get_generics_len(trait_id, fn_name) {
+                    panic!(); //TODO: error
+                }
+
                 let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(e, None))?;
-                self.check_obj_fns(fn_sigs, gen_tys, arg_tys, expect_ty)?
+                self.check_fns(&fn_sigs, &mut fn_gen_tys, &arg_tys, expect_ty)?
             }
         };
 
         Ok(*ty)
     }
 
-    fn check_fn(fn_sig: FnSignature,
+    fn check_fn(&mut self, fn_sig: &FnSignature,
                 generics: &mut Vec<Ty>,
-                args: Vec<Ty>,
+                args: &Vec<Ty>,
                 return_hint: Option<Ty>)
                 -> AnalyzeResult<Ty> {
         if generics.len() == 0 && fn_sig.generic_ids.len() != 0 {
@@ -115,52 +148,42 @@ impl Analyzer {
         }
 
         if generics.len() != fn_sig.generic_ids.len() {
-            return self.error();
+            panic!(""); //ERROR
         }
 
-        let replacements: HashMap<_, _> = fn_sig.generic_ids.iter().zip(generics).collect();
+        let replacements: HashMap<_, _> = fn_sig.generic_ids.iter().zip(generics).map(|(a, b)| (*a, *b)).collect();
 
         for (expect_ty, arg_ty) in fn_sig.params.iter().zip(args) {
-            let repl_expect_ty = self.replace_ty(expect_ty, replacements);
+            let repl_expect_ty = self.replace_ty(*expect_ty, replacements);
 
-            self.union_ty(repl_expect_ty, arg_ty);
+            self.union_ty(repl_expect_ty, *arg_ty);
         }
 
         let repl_return_ty = self.replace_ty(fn_sig.return_ty, replacements);
 
         if let Some(expect_return_ty) = return_hint {
-            self.union_ty(expect_return_ty, repl_return_ty)
+            self.union_ty(expect_return_ty, repl_return_ty)?;
         }
 
         self.check_requirements(replacements, fn_sig.reqs, MAX_IMPL_SEARCH_DEPTH)
             .and(Ok(repl_return_ty))
     }
 
-    fn check_fns(fn_sigs: Vec<FnSignature>,
+    fn check_fns(&mut self, fn_sigs: &Vec<FnSignature>,
                  generics: &mut Vec<Ty>,
-                 args: Vec<Ty>,
+                 args: &Vec<Ty>,
                  return_hint: Option<Ty>)
                  -> AnalyzeResult<Ty> {
-        if generics.len() == 0 && fn_sig.generic_ids.len() != 0 {
-            for _ in 0..fn_sig.generic_ids.len() {
-                generics.push(self.new_infer_ty());
-            }
-        }
-
-        if generics.len() != fn_sig.generic_ids.len() {
-            panic!("");
-        }
-
         let candidate_fn = None;
 
         for fn_sig in fn_sigs {
             self.set_ty_checkpoint();
-            let check_result = self.check_fn(fn_sig, generics, args, hint_ty);
+            let check_result = self.check_fn(fn_sig, generics, args, return_hint);
 
             if check_result.is_ok() {
                 if candidate_fn.is_some() {
-                    set.reset_ty_checkpoint();
-                    self.error()?;
+                    self.reset_ty_checkpoint();
+                    panic!(""); //ERROR
                 }
 
                 candidate_fn = Some(fn_sig);
@@ -170,19 +193,18 @@ impl Analyzer {
         }
 
         if candidate_fn.is_none() {
-            self.error();
+            panic!(""); //ERROR
         }
 
-        self.check_fn(candidate_fn.unwrap(), generics, args)
+        self.check_fn(candidate_fn.unwrap(), generics, args, return_hint)
     }
 
     fn check_requirements(&mut self,
                           replacements: HashMap<TyVarId, Ty>,
                           reqs: Vec<AnalyzeRequirement>,
-                          depth: u32)
-                          -> AnalyzeResult<()> {
+                          depth: u32) -> AnalyzeResult<()> {
         if depth == 0 {
-            return self.error();
+            panic!(""); //ERROR
         }
 
         for req in reqs {
@@ -202,18 +224,16 @@ impl Analyzer {
                 let imp_ty = self.replace_ty(imp.ty, imp_replacements);
                 let imp_trt = self.replace_ty(imp.trt, imp_replacements);
 
-                if self.union_right(ty, imp_ty).is_err() ||
-                   self.union_right(trt, imp_trt).is_err() ||
-                   self.check_requirements(impl_replacements, imp.reqs, depth - 1).is_err() {
-                    continue;
+                if self.union_ty_right(ty, imp_ty).is_ok() &&
+                   self.union_ty_right(trt, imp_trt).is_ok() &&
+                   self.check_requirements(imp_replacements, imp.reqs, depth - 1).is_ok() {
+                    satisfied = true;
+                    break;
                 }
-
-                satisfied = true;
-                break;
             }
 
             if !satisfied {
-                return self.error();
+                panic!(""); //ERROR
             }
         }
 
@@ -221,14 +241,14 @@ impl Analyzer {
     }
 
     fn get_fn_sig(&self, name: &String) -> AnalyzeResult<FnSignature> {
-        self.fns.get(name).ok_or_else(|| self.error()) //TODO: pos
+        self.fns.get(name).ok_or_else(|| {panic!("")}).clone() //ERROR
     }
 
     fn get_obj_fn_sigs(&self,
                        obj_ty: Ty,
                        name: &String,
                        is_member_fn: bool)
-                       -> Result<Vec<FnSignature>> {
+                       -> AnalyzeResult<(TraitId, Vec<FnSignature>)> {
         let sigs = Vec::new();
         let candidate_trt = None;
 
@@ -249,7 +269,11 @@ impl Analyzer {
             }
         }
 
-        Ok(sigs)
+        if candidate_trt.is_none() {
+            panic!(""); //TODO: error
+        }
+
+        Ok((candidate_trt.unwrap(), sigs))
     }
 
     fn match_ty_impl(&mut self, obj_ty: Ty, imp: &AnalyzeImpl) -> Option<Ty> {
@@ -258,7 +282,7 @@ impl Analyzer {
             imp.generic_ids.iter().map(|t| (t, self.new_infer_ty())).collect();
         let repl_impl_ty = self.replace_ty(imp.impl_ty, replacements);
 
-        if self.union_right(obj_ty, repl_impl_ty).is_err() {
+        if self.union_ty_right(obj_ty, repl_impl_ty).is_err() {
             return None;
         }
 
@@ -267,64 +291,115 @@ impl Analyzer {
         }
 
         // I don't believe I need to reset the checkpoint...
-        self.replace_ty(imp.trait_ty, replacements)
+        Some(self.replace_ty(imp.trait_ty, replacements))
     }
 
-    fn make_object_ty(&mut self, name: &String, generics: &Vec<Ty>) -> Ty {
+    fn make_object_ty(&mut self, name: &String, generics: Vec<Ty>) -> Ty {
         if self.fn_generics.contains_key(name) {
             if generics.len() != 0 {
-                self.error()?;
+                panic!(""); //TODO: error
             }
 
-            return self.register_analyze_ty(AnalyzeType::TypeVariable(self.fn_generics[name]));
+            return self.register_ty(AnalyzeType::TypeVariable(self.fn_generics[name]));
         }
 
         if self.obj_generics.contains_key(name) {
             if generics.len() != 0 {
-                self.error();
+                panic!(""); //TODO: error
             }
 
-            return self.register_analyze_ty(AnalyzeType::TypeVariable(self.obj_generics[name]));
+            return self.register_ty(AnalyzeType::TypeVariable(self.obj_generics[name]));
         }
 
-        let obj_skeleton = self.obj_skeletons.get(name).ok_or_else(|| self.error())?;
+        let obj_skeleton = self.obj_skeletons.get(name).ok_or_else(|| { panic!(""); /*TODO: error*/ })?;
 
         if obj_skeleton.generic_ids.len() != generics.len() {
-            self.error()?;
+            panic!(""); //TODO: error
         }
 
-        self.register_analyze_ty(AnalyzeType::Object(obj_skeleton.id, generics.clone()))
+        self.register_ty(AnalyzeType::Object(obj_skeleton.id, generics))
     }
 
-    fn replace_ty(ty: Ty, replacements: HashMap<TyVarId, Ty>) -> Ty {
+    fn replace_ty(&mut self, ty: Ty, replacements: HashMap<TyVarId, Ty>) -> Ty {
         let repl_ty = match &self.tys[ty] {
-            &AstType::Infer => AstType::Infer,
-            &AstType::NullInfer => AstType::NullInfer,
+            &AnalyzeType::Infer => AnalyzeType::Infer,
+            &AnalyzeType::NullInfer => AnalyzeType::NullInfer,
 
-            &AstType::Nothing => AstType::Nothing,
-            &AstType::Boolean => AstType::Boolean,
-            &AstType::Int => AstType::Int,
-            &AstType::UInt => AstType::UInt,
-            &AstType::Float => AstType::Float,
-            &AstType::Char => AstType::Char,
-            &AstType::String => AstType::String,
-            &AstType::Tuple(ref inner_tys) => {
-                AstType::Tuple(inner_tys.iter().map(|t| self.replace_ty(t, replacements)))
+            &AnalyzeType::Nothing => AnalyzeType::Nothing,
+            &AnalyzeType::Boolean => AnalyzeType::Boolean,
+            &AnalyzeType::Int => AnalyzeType::Int,
+            &AnalyzeType::UInt => AnalyzeType::UInt,
+            &AnalyzeType::Float => AnalyzeType::Float,
+            &AnalyzeType::Char => AnalyzeType::Char,
+            &AnalyzeType::String => AnalyzeType::String,
+            &AnalyzeType::Tuple(ref inner_tys) => {
+                AnalyzeType::Tuple(inner_tys.iter().map(|t| self.replace_ty(t, replacements)))
             }
-            &AstType::Array(inner_ty) => AstType::Array(self.replace_ty(inner_ty)),
-            &AstType::Object(obj_id) => AstType::Object(obj_id),
-            &AstType::TyVar(var_id) => {
+            &AnalyzeType::Array(inner_ty) => AnalyzeType::Array(self.replace_ty(inner_ty)),
+            &AnalyzeType::Object(obj_id) => AnalyzeType::Object(obj_id),
+            &AnalyzeType::TyVar(var_id) => {
                 if replacements.contains_key(var_id) {
-                    AstType::Same(replacements[&var_id])
+                    AnalyzeType::Same(replacements[&var_id])
                 } else {
-                    AstType::TyVar(var_id)
+                    AnalyzeType::TyVar(var_id)
                 }
             }
 
-            AstType::Same(same_ty) => AstType::Same(self.replace_ty(same_ty)),
+            AnalyzeType::Same(same_ty) => AnalyzeType::Same(self.replace_ty(same_ty)),
         };
 
-        self.register_analyze_ty(repl_ty)
+        self.register_ty(repl_ty)
+    }
+
+    fn initialize_object(&mut self, obj: &AstObject) -> AnalyzeObject {
+        unimplemented!();
+    }
+
+    fn initialize_trait(&mut self, trt: &AstTrait) -> AnalyzeTrait {
+        for generic in trt.generics {
+            if self.generics.insert(generic, self.ty_id_count.next()).is_some() {
+                panic!(""); //ERROR
+            }
+        }
+
+        let generic_tys: Vec<_> = trt.generics.iter().map(|t| self.generics[t]).collect();
+        let mem_fns = HashMap::new();
+        let static_fns = HashMap::new();
+
+        for fun in trt.functions {
+            if mem_fns.contains_key(fun.name) || static_fns.contains_key(fun.name) {
+                panic!(""); //ERROR
+            }
+
+            if fun.has_self { &mem_fns } else { &static_fns }
+                .insert(fun.name.clone(), self.initialize_object_function(fun));
+        }
+
+        AnalyzeTrait::new(generic_tys, mem_fns, static_fns)
+    }
+
+    fn initialize_impl(&mut self, imp: &AstImpl) -> AnalyzeImpl {
+        unimplemented!();
+    }
+
+    fn init_integrity_trt(&mut self, trt: &AnalyzeTrait) {
+        unimplemented!();
+    }
+
+    fn init_integrity_obj(&mut self, trt: &AnalyzeObject) {
+        unimplemented!();
+    }
+
+    fn check_integrity_impl(&mut self, imp: &AnalyzeImpl) {
+        unimplemented!();
+    }
+
+    fn init_ty(&mut self, ty: &AstType) -> Ty {
+        unimplemented!();
+    }
+
+    fn get_generics_len(&self, trt: TraitId, fn_name: &String) -> usize {
+        unimplemented!();
     }
 
     fn union_ty(&mut self, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
@@ -334,12 +409,12 @@ impl Analyzer {
 
         // If ty1 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
-            return self.union_ty(ty1_same, ty2, pos);
+            return self.union_ty(ty1_same, ty2);
         }
 
         // If ty2 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty2_same) = self.ty_map[&ty2] {
-            return self.union_ty(ty1, ty2_same, pos);
+            return self.union_ty(ty1, ty2_same);
         }
 
         match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) { //TODO: :(
@@ -352,17 +427,13 @@ impl Analyzer {
             // NullInfer can union with any *nullable* type
             (AnalyzeType::NullInfer, t) => {
                 if !self.is_nullable(&t) {
-                    self.err_at(pos,
-                                format!("`null` may only be assigned to types which are \
-                                         nullable."));
+                    panic!(""); //ERROR
                 }
                 self.set_ty(ty1, AnalyzeType::Same(ty2));
             }
             (t, AnalyzeType::NullInfer) => {
                 if !self.is_nullable(&t) {
-                    self.err_at(pos,
-                                format!("`null` may only be assigned to types which are \
-                                         nullable."));
+                    panic!(""); //ERROR
                 }
                 self.set_ty(ty2, AnalyzeType::Same(ty1));
             }
@@ -378,8 +449,7 @@ impl Analyzer {
             // Tuples union if they're the same length and the sub-types union as well.
             (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
                 if ty1_tys.len() != ty2_tys.len() {
-                    self.err_at(pos,
-                                format!("Cannot consolidate tuple types of varying lengths"));
+                    panic!(""); //ERROR
                 }
                 for i in 0..ty1_tys.len() {
                     self.union_ty(ty1_tys[i], ty2_tys[i])?;
@@ -392,19 +462,19 @@ impl Analyzer {
             // Object types
             (AnalyzeType::Object(obj_ty1, generics1), AnalyzeType::Object(obj_ty2, generics2)) => {
                 if obj_ty1 != obj_ty2 {
-                    self.err_at(pos, format!("Differing object types when consolidating"));
+                    panic!(""); //ERROR
                 }
 
-                for (gen_ty1, gen_ty2) in generics.iter().zip(generics2) {
+                for (gen_ty1, gen_ty2) in generics1.iter().zip(generics2) {
                     self.union_ty(gen_ty1, gen_ty2)?;
                 }
             }
             (AnalyzeType::TypeVariable(tv1), AnalyzeType::TypeVariable(tv2)) => {
                 if tv1 != tv2 {
-                    self.error();
+                    panic!(""); //ERROR
                 }
             }
-            _ => self.error()?,
+            _ => { panic!(); /*ERROR*/ },
         }
     }
 
@@ -415,12 +485,12 @@ impl Analyzer {
 
         // If ty1 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty1_same) = self.ty_map[&ty1] {
-            return self.union_ty_right(ty1_same, ty2, pos);
+            return self.union_ty_right(ty1_same, ty2);
         }
 
         // If ty2 is Same, then union the referenced type instead
         if let AnalyzeType::Same(ty2_same) = self.ty_map[&ty2] {
-            return self.union_ty_right(ty1, ty2_same, pos);
+            return self.union_ty_right(ty1, ty2_same);
         }
 
         match (self.ty_map[&ty1].clone(), self.ty_map[&ty2].clone()) { //TODO: :(
@@ -429,9 +499,7 @@ impl Analyzer {
             }
             (t, AnalyzeType::NullInfer) => {
                 if !self.is_nullable(&t) {
-                    self.err_at(pos,
-                                format!("`null` may only be assigned to types which are \
-                                         nullable."));
+                    panic!(""); //ERROR
                 }
                 self.set_ty(ty2, AnalyzeType::Same(ty1));
             }
@@ -447,8 +515,7 @@ impl Analyzer {
             // Tuples union if they're the same length and the sub-types union as well.
             (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
                 if ty1_tys.len() != ty2_tys.len() {
-                    self.err_at(pos,
-                                format!("Cannot consolidate tuple types of varying lengths"));
+                    panic!(""); //ERROR
                 }
                 for i in 0..ty1_tys.len() {
                     self.union_ty_right(ty1_tys[i], ty2_tys[i])?;
@@ -461,48 +528,27 @@ impl Analyzer {
             // Object types
             (AnalyzeType::Object(obj_ty1, generics1), AnalyzeType::Object(obj_ty2, generics2)) => {
                 if obj_ty1 != obj_ty2 {
-                    self.err_at(pos, format!("Differing object types when consolidating"));
+                    panic!(""); //ERROR
                 }
 
-                for (gen_ty1, gen_ty2) in generics.iter().zip(generics2) {
+                for (gen_ty1, gen_ty2) in generics1.iter().zip(generics2) {
                     self.union_ty_right(gen_ty1, gen_ty2)?;
                 }
             }
             (AnalyzeType::TypeVariable(tv1), AnalyzeType::TypeVariable(tv2)) => {
                 if tv1 != tv2 {
-                    self.error();
+                    panic!(""); //ERROR
                 }
             }
-            _ => self.error()?,
+            _ => {panic!(""); /*ERROR*/ },
         }
-    }
-
-    fn initialize_trait(&mut self, trt: &AstTrait) -> AnalyzeTrait {
-        if self.generics.insert(name, self.ty_id_count.next()).is_some() {
-            self.error()?;
-        }
-
-        let generic_tys: Vec<_> = trt.generics.iter().map(|t| self.generics[t]).collect();
-        let mem_fns = HashMap::new();
-        let static_fns = HashMap::new();
-
-        for fun in trt.functions {
-            if mem_fns.contains_key(fun.name) || static_fns.contains_key(fun.name) {
-                // TODO: die
-            }
-
-            if fun.has_self { &mem_fns } else { &static_fns }
-                .insert(fun.name.clone(), self.initialize_object_function(fun));
-        }
-
-        AnalyzeTrait::new(generic_tys, mem_fns, static_fns)
     }
 
     fn new_infer_ty(&mut self) -> Ty {
-        self.register_analyze_ty(AnalyzeType::Infer);
+        self.register_ty(AnalyzeType::Infer);
     }
 
-    fn register_analyze_ty(&mut self, aty: AnalyzeType) -> Ty {
+    fn register_ty(&mut self, aty: AnalyzeType) -> Ty {
         let id = self.ty_id_count.next().unwrap();
 
         self.tys.insert(id, aty);
@@ -512,13 +558,13 @@ impl Analyzer {
     fn set_ty(&mut self, ty: Ty, aty: AnalyzeType) {
         let old = self.tys.insert(ty, aty);
         if !self.ty_history.contains_key(ty) {
-            self.ty_history.insert(id, old); //OMG, 10/10
+            self.ty_history.insert(ty, old); //OMG, 10/10
         }
     }
 
     fn set_ty_checkpoint(&mut self) -> AnalyzeResult<()> {
         if self.ty_history.len() != 0 {
-            self.error();
+            panic!(""); //ERROR
         }
 
         Ok(())
@@ -530,7 +576,7 @@ impl Analyzer {
                 self.tys.insert(id, old_ty);
             } else {
                 // None, remove.
-                self.tys.remove(id);
+                self.tys.remove(&id);
             }
         }
 
@@ -538,14 +584,12 @@ impl Analyzer {
     }
 }
 
-fn map_vec<T, K>(vec: &Vec<T>, fun: F) -> Vec<K>
-    where F: Fn(&T) -> K
-{
-    vec.iter().map(f).collect()
+fn map_vec<T, F, K>(vec: &Vec<T>, fun: F) -> Vec<K>
+    where F: Fn(&T) -> K {
+    vec.iter().map(fun).collect()
 }
 
-fn map_vec_unwrap<T, E, F, K>(vec: Vec<T>, fun: F) -> Result<Vec<K>, E>
-    where F: Fn(&T) -> Result<K, E>
-{
-    vec.iter().map(fun).collect()
+fn map_vec_unwrap<T, F, K, E>(vec: &mut Vec<T>, fun: F) -> Result<Vec<K>, E>
+    where F: Fn(&mut T) -> Result<K, E> {
+    vec.iter_mut().map(fun).collect()
 }
