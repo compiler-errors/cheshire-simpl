@@ -18,6 +18,9 @@ type AnalyzeResult<T> = Result<T, ()>;
   * conversion of local names to global names `fn_name` to `pkg.pkg.fn_name`.
   */
 pub struct Analyzer {
+    fns: HashMap<String, FnSignature>,
+
+    ty_id_count: Counter,
     tys: HashMap<Ty, AnalyzeType>,
     ty_history: HashMap<Ty, Option<AnalyzeType>>,
 
@@ -208,8 +211,8 @@ impl Analyzer {
         }
 
         for req in reqs {
-            let ty = replacements[&reqs.ty_var];
-            let trt = self.replace_ty(reqs.trt, replacements);
+            let ty = replacements[&req.ty_var];
+            let trt = self.replace_ty(req.trt, replacements);
             let trait_id = self.get_trait_id(trt);
 
             let mut satisfied = false;
@@ -220,9 +223,9 @@ impl Analyzer {
                 }
 
                 let imp_replacements: HashMap<_, _> =
-                    imp.generic_tys.map(|t| (t, self.new_infer_ty())).collect();
-                let imp_ty = self.replace_ty(imp.ty, imp_replacements);
-                let imp_trt = self.replace_ty(imp.trt, imp_replacements);
+                    imp.generic_ids.iter().map(|t| (*t, self.new_infer_ty())).collect();
+                let imp_ty = self.replace_ty(imp.imp_ty, imp_replacements);
+                let imp_trt = self.replace_ty(imp.imp_trt, imp_replacements);
 
                 if self.union_ty_right(ty, imp_ty).is_ok() &&
                    self.union_ty_right(trt, imp_trt).is_ok() &&
@@ -241,7 +244,7 @@ impl Analyzer {
     }
 
     fn get_fn_sig(&self, name: &String) -> AnalyzeResult<FnSignature> {
-        self.fns.get(name).ok_or_else(|| {panic!("")}).clone() //ERROR
+        self.fns.get(name).ok_or_else(|| {panic!("")}).map(|o| o.clone()) //ERROR
     }
 
     fn get_obj_fn_sigs(&self,
@@ -252,14 +255,14 @@ impl Analyzer {
         let sigs = Vec::new();
         let candidate_trt = None;
 
-        for imp in self.impls {
+        for imp in &self.impls {
             if self.trait_has_function(imp.trait_id, name, is_member_fn) {
                 if let Some(trait_ty) = self.match_ty_impl(obj_ty, imp) {
                     let fn_sig = self.get_trait_function(trait_ty, name);
 
                     if let Some(trait_id) = candidate_trt {
                         if trait_id != imp.trait_id {
-                            self.error()?;
+                            panic!(""); //TODO: ERROR
                         }
                     }
 
@@ -279,19 +282,19 @@ impl Analyzer {
     fn match_ty_impl(&mut self, obj_ty: Ty, imp: &AnalyzeImpl) -> Option<Ty> {
         // TODO: Result??
         let replacements: HashMap<_, _> =
-            imp.generic_ids.iter().map(|t| (t, self.new_infer_ty())).collect();
-        let repl_impl_ty = self.replace_ty(imp.impl_ty, replacements);
+            imp.generic_ids.iter().map(|t| (*t, self.new_infer_ty())).collect();
+        let repl_impl_ty = self.replace_ty(imp.imp_ty, replacements);
 
         if self.union_ty_right(obj_ty, repl_impl_ty).is_err() {
             return None;
         }
 
-        if self.check_requirements(replacements, imp.requirements, MAX_IMPL_SEARCH_DEPTH).is_err() {
+        if self.check_requirements(replacements, imp.reqs, MAX_IMPL_SEARCH_DEPTH).is_err() {
             return None;
         }
 
         // I don't believe I need to reset the checkpoint...
-        Some(self.replace_ty(imp.trait_ty, replacements))
+        Some(self.replace_ty(imp.imp_trt, replacements))
     }
 
     fn make_object_ty(&mut self, name: &String, generics: Vec<Ty>) -> Ty {
@@ -399,6 +402,14 @@ impl Analyzer {
     }
 
     fn get_generics_len(&self, trt: TraitId, fn_name: &String) -> usize {
+        unimplemented!();
+    }
+
+    fn trait_has_function(&self, trt_id: TraitId, name: &String, member: bool) -> bool {
+        unimplemented!();
+    }
+
+    fn get_trait_function(&self, trt_ty: Ty, name: &String) -> FnSignature {
         unimplemented!();
     }
 
@@ -542,6 +553,10 @@ impl Analyzer {
             }
             _ => {panic!(""); /*ERROR*/ },
         }
+    }
+
+    fn get_trait_id(&self, ty: Ty) -> TraitId {
+        unimplemented!();
     }
 
     fn new_infer_ty(&mut self) -> Ty {

@@ -54,6 +54,7 @@ pub enum AnalyzeType {
 pub struct FnSignature {
     pub params: Vec<Ty>,
     pub generic_ids: Vec<TyVarId>,
+    pub reqs: Vec<AnalyzeRequirement>,
     pub return_ty: Ty,
 }
 
@@ -86,7 +87,11 @@ impl AnalyzeObject {
 }
 
 pub struct AnalyzeImpl {
-
+    pub imp_ty: Ty,
+    pub imp_trt: Ty,
+    pub trait_id: TraitId,
+    pub generic_ids: Vec<TyVarId>,
+    pub reqs: Vec<AnalyzeRequirement>,
 }
 
 pub struct AnalyzeTrait {
