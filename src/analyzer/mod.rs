@@ -18,6 +18,10 @@ type AnalyzeResult<T> = Result<T, ()>;
   * conversion of local names to global names `fn_name` to `pkg.pkg.fn_name`.
   */
 pub struct Analyzer {
+    // Immediate analyzer state information
+    fn_generics: HashMap<String, TyVarId>,
+    obj_generics: HashMap<String, TyVarId>,
+
     fns: HashMap<String, FnSignature>,
 
     ty_id_count: Counter,
@@ -77,6 +81,10 @@ impl Analyzer {
         }
 
         for imp in &self.impls {
+            self.init_integirty_imp(imp); //TODO: init integirty for non-dummy impls
+        }
+
+        for imp in &self.impls {
             self.check_integrity_impl(imp);
         }
     }
@@ -118,7 +126,7 @@ impl Analyzer {
                                                  ref mut fn_generics,
                                                  ref mut args } => {
                 let mut obj_gen_tys: Vec<_> = map_vec(obj_generics, |t| self.init_ty(t));
-                let obj_ty = self.make_object_ty(obj_name, obj_gen_tys);
+                let obj_ty = self.make_ident_ty(obj_name, obj_gen_tys);
                 let (trait_id, fn_sigs) = self.get_obj_fn_sigs(obj_ty, fn_name, false)?; //false = static
                 //TODO: store generics (for both...)
                 let mut fn_gen_tys: Vec<_> = map_vec(fn_generics, |t| self.init_ty(t));
@@ -297,7 +305,7 @@ impl Analyzer {
         Some(self.replace_ty(imp.imp_trt, replacements))
     }
 
-    fn make_object_ty(&mut self, name: &String, generics: Vec<Ty>) -> Ty {
+    fn make_ident_ty(&mut self, name: &String, generics: Vec<Ty>) -> AnalyzeResult<Ty> {
         if self.fn_generics.contains_key(name) {
             if generics.len() != 0 {
                 panic!(""); //TODO: error
@@ -314,17 +322,29 @@ impl Analyzer {
             return self.register_ty(AnalyzeType::TypeVariable(self.obj_generics[name]));
         }
 
-        let obj_skeleton = self.obj_skeletons.get(name).ok_or_else(|| { panic!(""); /*TODO: error*/ })?;
+        if let Some(obj_id) = self.obj_ids.get(name) {
+            if let Some(obj_skeleton) = self.obj_skeletons.get(obj_id) {
+                if generics.len() != 0 {
+                    if obj_skeleton.generic_ids.len() != generics.len() {
+                        panic!(); //TODO: error
+                    }
+                } else {
+                    for _ in 0..obj_skeleton.generic_ids.len() {
+                        generics.push(self.new_infer_ty());
+                    }
+                }
+            } else {
+                unimplemented!(); //TODO: add to some struct to check later, drain at end.
+            }
 
-        if obj_skeleton.generic_ids.len() != generics.len() {
+            self.register_ty(AnalyzeType::Object(obj_id, generics))
+        } else {
             panic!(""); //TODO: error
         }
-
-        self.register_ty(AnalyzeType::Object(obj_skeleton.id, generics))
     }
 
-    fn replace_ty(&mut self, ty: Ty, replacements: HashMap<TyVarId, Ty>) -> Ty {
-        let repl_ty = match &self.tys[ty] {
+    fn replace_ty(&mut self, ty: Ty, &replacements: HashMap<TyVarId, Ty>) -> Ty {
+        let repl_ty = match &self.tys[&ty] {
             &AnalyzeType::Infer => AnalyzeType::Infer,
             &AnalyzeType::NullInfer => AnalyzeType::NullInfer,
 
@@ -336,19 +356,21 @@ impl Analyzer {
             &AnalyzeType::Char => AnalyzeType::Char,
             &AnalyzeType::String => AnalyzeType::String,
             &AnalyzeType::Tuple(ref inner_tys) => {
-                AnalyzeType::Tuple(inner_tys.iter().map(|t| self.replace_ty(t, replacements)))
+                AnalyzeType::Tuple(inner_tys.iter().map(|t| self.replace_ty(*t, replacements)).collect())
             }
-            &AnalyzeType::Array(inner_ty) => AnalyzeType::Array(self.replace_ty(inner_ty)),
-            &AnalyzeType::Object(obj_id) => AnalyzeType::Object(obj_id),
-            &AnalyzeType::TyVar(var_id) => {
+            &AnalyzeType::Array(inner_ty) => AnalyzeType::Array(self.replace_ty(inner_ty, replacements)),
+            &AnalyzeType::Object(obj_id, ref generics) =>
+                AnalyzeType::Object(obj_id, generics.iter().map(|t| self.replace_ty(*t, replacements)).collect()),
+
+            &AnalyzeType::TypeVariable(var_id) => {
                 if replacements.contains_key(var_id) {
                     AnalyzeType::Same(replacements[&var_id])
                 } else {
-                    AnalyzeType::TyVar(var_id)
+                    AnalyzeType::TypeVariable(var_id)
                 }
             }
 
-            AnalyzeType::Same(same_ty) => AnalyzeType::Same(self.replace_ty(same_ty)),
+            &AnalyzeType::Same(same_ty) => AnalyzeType::Same(self.replace_ty(same_ty, replacements)),
         };
 
         self.register_ty(repl_ty)
@@ -360,7 +382,7 @@ impl Analyzer {
 
     fn initialize_trait(&mut self, trt: &AstTrait) -> AnalyzeTrait {
         for generic in trt.generics {
-            if self.generics.insert(generic, self.ty_id_count.next()).is_some() {
+            if self.obj_generics.insert(generic, self.ty_id_count.next()).is_some() {
                 panic!(""); //ERROR
             }
         }
@@ -378,6 +400,7 @@ impl Analyzer {
                 .insert(fun.name.clone(), self.initialize_object_function(fun));
         }
 
+        self.obj_generics.clear();
         AnalyzeTrait::new(generic_tys, mem_fns, static_fns)
     }
 

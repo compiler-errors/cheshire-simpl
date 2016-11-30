@@ -44,7 +44,8 @@ pub enum AnalyzeType {
     String,
     Tuple(Vec<Ty>),
     Array(Ty),
-    Object(ObjId, Vec<Ty>), // ObjId and Generics
+    Object(ObjId, Vec<Ty>),
+    TypeVariable(TyVarId),
 
     Same(Ty),
 }
@@ -69,6 +70,8 @@ impl FnSignature {
 
 pub struct AnalyzeObject {
     pub name: String,
+    pub id: ObjId,
+    pub generic_ids: Vec<TyVarId>,
     pub member_ids: HashMap<String, MemberId>,
     pub member_tys: Vec<Ty>,
 }
