@@ -899,7 +899,7 @@ impl<'a> Parser<'a> {
             self.expect_consume(Token::Dot)?;
         }
 
-        Ok(AstObject::new(pos, generics, name, members))
+        Ok(AstObject::new(pos, generics, name, members, restrictions))
     }
 
     fn parse_object_function(&mut self) -> ParseResult<AstObjectFunction> {
@@ -952,6 +952,7 @@ impl<'a> Parser<'a> {
         self.expect_consume(Token::Trait)?;
         let generics = self.try_parse_decl_generics()?;
         let name = self.expect_get_identifier()?;
+        let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
 
         let mut fns = Vec::new();
@@ -961,7 +962,7 @@ impl<'a> Parser<'a> {
             fns.push(fun);
         }
 
-        Ok(AstTrait::new(pos, name, generics, fns))
+        Ok(AstTrait::new(pos, name, generics, fns, restrictions))
     }
 
     fn parse_impl(&mut self) -> ParseResult<AstImpl> {
@@ -971,6 +972,7 @@ impl<'a> Parser<'a> {
         let trait_ty = self.parse_object_type()?;
         self.expect_consume(Token::For)?;
         let impl_ty = self.parse_type()?;
+        let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
 
         let mut fns = Vec::new();
@@ -983,7 +985,7 @@ impl<'a> Parser<'a> {
             fns.push(obj_fn);
         }
 
-        Ok(AstImpl::new(pos, impl_generics, trait_ty, impl_ty, fns))
+        Ok(AstImpl::new(pos, impl_generics, trait_ty, impl_ty, fns, restrictions))
     }
 }
 

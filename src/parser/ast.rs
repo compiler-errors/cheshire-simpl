@@ -420,7 +420,7 @@ impl AstExpression {
                 len: len,
                 id: 0,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -428,7 +428,7 @@ impl AstExpression {
     pub fn char_literal(ch: char, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Char(ch),
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -436,7 +436,7 @@ impl AstExpression {
     pub fn int_literal(num: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Int(num),
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -444,7 +444,7 @@ impl AstExpression {
     pub fn uint_literal(num: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::UInt(num),
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -452,7 +452,7 @@ impl AstExpression {
     pub fn float_literal(num: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Float(num),
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -463,7 +463,7 @@ impl AstExpression {
                 name: identifier,
                 var_id: 0,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -471,7 +471,7 @@ impl AstExpression {
     pub fn tuple_literal(values: Vec<AstExpression>, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Tuple { values: values },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -479,7 +479,7 @@ impl AstExpression {
     pub fn empty_array_literal(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Array { elements: Vec::new() },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -487,7 +487,7 @@ impl AstExpression {
     pub fn array_literal(elements: Vec<AstExpression>, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Array { elements: elements },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -503,7 +503,7 @@ impl AstExpression {
                 generics: generics,
                 args: args,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -521,7 +521,7 @@ impl AstExpression {
                 generics: generics,
                 args: args,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -541,7 +541,7 @@ impl AstExpression {
                 fn_generics: fn_generics,
                 args: args,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -552,7 +552,7 @@ impl AstExpression {
                 accessible: Box::new(lhs),
                 idx: Box::new(idx),
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -563,7 +563,7 @@ impl AstExpression {
                 accessible: Box::new(lhs),
                 idx: idx,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -575,7 +575,7 @@ impl AstExpression {
                 mem_name: mem_name,
                 mem_idx: 0,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -583,7 +583,7 @@ impl AstExpression {
     pub fn allocate(object: String, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Allocate { object: object },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -599,7 +599,7 @@ impl AstExpression {
                 rhs: Box::new(rhs),
                 kind: binop,
             },
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -607,7 +607,7 @@ impl AstExpression {
     pub fn not(lhs: AstExpression, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Not(Box::new(lhs)),
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -615,7 +615,7 @@ impl AstExpression {
     pub fn neg(lhs: AstExpression, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Negate(Box::new(lhs)),
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -623,7 +623,7 @@ impl AstExpression {
     pub fn nothing(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Nothing,
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -631,7 +631,7 @@ impl AstExpression {
     pub fn true_lit(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::True,
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -639,7 +639,7 @@ impl AstExpression {
     pub fn false_lit(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::False,
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -647,7 +647,7 @@ impl AstExpression {
     pub fn null_lit(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Null,
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -655,7 +655,7 @@ impl AstExpression {
     pub fn self_ref(pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::SelfRef,
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -672,19 +672,22 @@ pub struct AstObject {
     pub id: ObjId,
     /// The members that are contained in the object
     pub members: Vec<AstObjectMember>,
+    pub restrictions: Vec<AstTypeRestriction>,
 }
 
 impl AstObject {
     pub fn new(pos: usize,
                generics: Vec<String>,
                name: String,
-               members: Vec<AstObjectMember>)
+               members: Vec<AstObjectMember>,
+               restrictions: Vec<AstTypeRestriction>)
                -> AstObject {
         AstObject {
             pos: pos,
             generics: generics,
             name: name,
-            id: 0,
+            id: ObjId(0),
+            restrictions: restrictions,
             members: members,
         }
     }
@@ -762,7 +765,7 @@ impl AstObjectMember {
         AstObjectMember {
             name: name,
             member_type: member_type,
-            ty: 0,
+            ty: Ty(0),
             pos: pos,
         }
     }
@@ -770,24 +773,27 @@ impl AstObjectMember {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AstTrait {
+    pub pos: usize,
     pub name: String,
     pub generics: Vec<String>,
     pub functions: Vec<AstObjectFnSignature>,
     pub id: TraitId,
-    pub pos: usize,
+    pub restrictions: Vec<AstTypeRestriction>,
 }
 
 impl AstTrait {
     pub fn new(pos: usize,
                name: String,
                generics: Vec<String>,
-               functions: Vec<AstObjectFnSignature>)
+               functions: Vec<AstObjectFnSignature>,
+               restrictions: Vec<AstTypeRestriction>)
                -> AstTrait {
         AstTrait {
             name: name,
             generics: generics,
             functions: functions,
-            id: 0,
+            id: TraitId(0),
+            restrictions: restrictions,
             pos: pos,
         }
     }
@@ -816,6 +822,7 @@ pub struct AstImpl {
     pub trait_ty: AstType,
     pub impl_ty: AstType,
     pub fns: Vec<AstObjectFunction>,
+    pub restrictions: Vec<AstTypeRestriction>,
     pub pos: usize,
 }
 
@@ -824,13 +831,15 @@ impl AstImpl {
                generics: Vec<String>,
                trait_ty: AstType,
                impl_ty: AstType,
-               fns: Vec<AstObjectFunction>)
+               fns: Vec<AstObjectFunction>,
+               restrictions: Vec<AstTypeRestriction>)
                -> AstImpl {
         AstImpl {
             pos: pos,
             generics: generics,
             trait_ty: trait_ty,
             impl_ty: impl_ty,
+            restrictions: restrictions,
             fns: fns,
         }
     }

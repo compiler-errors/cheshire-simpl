@@ -4,18 +4,21 @@ use parser::AstType;
 use super::{Analyzer, AnalyzeResult};
 use super::represent::{ObjId, TraitId};
 
-pub type Ty = u32;
-pub type TyVarId = u32;
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct Ty(pub u32);
 
-pub const TY_NOTHING: Ty = 1;
-pub const TY_BOOLEAN: Ty = 2;
-pub const TY_INT: Ty = 3;
-pub const TY_UINT: Ty = 4;
-pub const TY_FLOAT: Ty = 5;
-pub const TY_CHAR: Ty = 6;
-pub const TY_STRING: Ty = 7;
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct TyVarId(pub u32);
 
-pub const TY_FIRST_NEW_ID: Ty = 8;
+pub const TY_NOTHING: Ty = Ty(1);
+pub const TY_BOOLEAN: Ty = Ty(2);
+pub const TY_INT: Ty = Ty(3);
+pub const TY_UINT: Ty = Ty(4);
+pub const TY_FLOAT: Ty = Ty(5);
+pub const TY_CHAR: Ty = Ty(6);
+pub const TY_STRING: Ty = Ty(7);
+
+pub const TY_FIRST_NEW_ID: Ty = Ty(8);
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 /** AnalyzeType is the type used by the Analyzer module.
@@ -112,7 +115,7 @@ impl TypeSystem {
     }
 
     fn register_ty(&mut self, aty: AnalyzeType) -> Ty {
-        let id = self.ty_id_count.next();
+        let id = Ty(self.ty_id_count.next());
         self.tys.insert(id, aty);
 
         if self.in_snapshot {

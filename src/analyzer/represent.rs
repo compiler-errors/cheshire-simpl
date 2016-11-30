@@ -3,9 +3,13 @@ use super::type_system::{Ty, TyVarId};
 
 pub type VarId = u32;
 pub type StringId = u32;
-pub type ObjId = u32;
-pub type TraitId = u32;
 pub type MemberId = u32;
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct ObjId(pub u32);
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct TraitId(pub u32);
 
 #[derive(Clone)]
 /// FnSignature stores the parameter and return types of a function.

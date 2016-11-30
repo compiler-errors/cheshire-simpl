@@ -40,13 +40,13 @@ impl Analyzer {
         let ParseFile { file, mut objects, functions, export_fns, mut traits, mut impls } = f;
 
         for obj in &mut objects {
-            obj.id = self.obj_id_count.next();
+            obj.id = ObjId(self.obj_id_count.next());
             self.obj_ids.insert(obj.name.clone(), obj.id);
             self.obj_names.insert(obj.id, obj.name.clone());
         }
 
         for trt in &mut traits {
-            trt.id = self.trt_id_count.next();
+            trt.id = TraitId(self.trt_id_count.next());
             self.trt_ids.insert(trt.name.clone(), trt.id);
             self.trt_names.insert(trt.id, trt.name.clone());
         }
