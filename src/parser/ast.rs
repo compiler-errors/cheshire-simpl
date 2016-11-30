@@ -678,7 +678,6 @@ impl AstObject {
     pub fn new(pos: usize,
                generics: Vec<String>,
                name: String,
-               functions: Vec<AstObjectFunction>,
                members: Vec<AstObjectMember>)
                -> AstObject {
         AstObject {
@@ -686,7 +685,6 @@ impl AstObject {
             generics: generics,
             name: name,
             id: 0,
-            functions: functions,
             members: members,
         }
     }

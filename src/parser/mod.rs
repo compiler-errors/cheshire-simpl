@@ -888,24 +888,18 @@ impl<'a> Parser<'a> {
         let name = self.expect_get_identifier()?;
         let restrictions = self.try_parse_restrictions()?;
         self.expect_consume(Token::LBrace)?;
-
-        let mut fns = Vec::new();
         let mut members = Vec::new();
 
         while !self.check_consume(Token::RBrace) {
-            if self.check(Token::Fn) {
-                fns.push(self.parse_object_function()?);
-            } else {
-                let mem_pos = self.pos;
-                let mem_name = self.expect_get_identifier()?;
-                self.expect_consume(Token::Colon)?;
-                let ty = self.parse_type()?;
-                members.push(AstObjectMember::new(mem_name, ty, mem_pos));
-                self.expect_consume(Token::Dot)?;
-            }
+            let mem_pos = self.pos;
+            let mem_name = self.expect_get_identifier()?;
+            self.expect_consume(Token::Colon)?;
+            let ty = self.parse_type()?;
+            members.push(AstObjectMember::new(mem_name, ty, mem_pos));
+            self.expect_consume(Token::Dot)?;
         }
 
-        Ok(AstObject::new(pos, generics, name, fns, members))
+        Ok(AstObject::new(pos, generics, name, members))
     }
 
     fn parse_object_function(&mut self) -> ParseResult<AstObjectFunction> {

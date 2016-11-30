@@ -1,12 +1,10 @@
 pub struct Counter {
-    i: u32
+    i: u32,
 }
 
 impl Counter {
     pub fn new(start: u32) -> Counter {
-        Counter {
-            i: start
-        }
+        Counter { i: start }
     }
 
     pub fn next(&mut self) -> u32 {

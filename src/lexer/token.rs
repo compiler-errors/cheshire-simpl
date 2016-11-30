@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-    /* Language symbols */
+    // Language symbols
     Dot,            //    .
     Comma,          //    ,
     Colon,          //    :
@@ -18,7 +18,7 @@ pub enum Token {
     RParen,         //    )
     RArrow,         //    ->
 
-    /* Mathematical operators (excluding LSquare, RSquare) */
+    // Mathematical operators (excluding LSquare, RSquare)
     LessEqual,      //    <=
     GreaterEqual,   //    >=
     EqualsEquals,   //    ==
@@ -36,7 +36,7 @@ pub enum Token {
     Modulo,         //    %
     Caret,          //    ^
 
-    /* Special keywords -- all are lowercase */
+    // Special keywords -- all are lowercase
     Fn,
     Export,
     Let,
@@ -60,7 +60,7 @@ pub enum Token {
     SelfRef,
     Allocate,
 
-    /* Privileged Types */
+    // Privileged Types
     Int,
     UInt,
     Bool,
@@ -70,7 +70,7 @@ pub enum Token {
     Infer,
     SelfType,
 
-    /* Literals */
+    // Literals
     String(String, u32),
     IntLiteral(String),
     UIntLiteral(String),
@@ -81,7 +81,7 @@ pub enum Token {
     /// End of file
     EOF,
     /// Beginning of file
-    BOF
+    BOF,
 }
 
 impl Display for Token {
@@ -91,6 +91,7 @@ impl Display for Token {
             &Token::Comma => write!(f, "),"),
             &Token::Colon => write!(f, ":"),
             &Token::ColonColon => write!(f, "::"),
+            &Token::ColonLt => write!(f, ":<"),
             &Token::LBrace => write!(f, "{{"),
             &Token::RBrace => write!(f, "}}"),
             &Token::LSqBracket => write!(f, "["),
@@ -120,6 +121,8 @@ impl Display for Token {
             &Token::Export => write!(f, "export"),
             &Token::Trait => write!(f, "trait"),
             &Token::Impl => write!(f, "impl"),
+            &Token::Where => write!(f, "where"),
+            &Token::For => write!(f, "for"),
             &Token::Let => write!(f, "let"),
             &Token::If => write!(f, "if"),
             &Token::Else => write!(f, "else"),
@@ -142,6 +145,7 @@ impl Display for Token {
             &Token::Char => write!(f, "Type (Char)"),
             &Token::StringType => write!(f, "Type (String)"),
             &Token::Infer => write!(f, "Type (_)"),
+            &Token::SelfType => write!(f, "Type (Self)"),
             &Token::String(..) => write!(f, "String"),
             &Token::IntLiteral(_) => write!(f, "Number"),
             &Token::UIntLiteral(_) => write!(f, "Number"),
@@ -149,8 +153,7 @@ impl Display for Token {
             &Token::CharLiteral(_) => write!(f, "Char Literal"),
             &Token::Identifier(_) => write!(f, "Identifier"),
             &Token::EOF => write!(f, "EOF"),
-            &Token::BOF => write!(f, "BOF")
-        }?;
-        Ok(())
+            &Token::BOF => write!(f, "BOF"),
+        }
     }
 }
