@@ -79,11 +79,11 @@ impl Analyzer {
         let &mut AstExpression { ref mut expr, ref mut ty, pos } = node;
 
         *ty = match expr {
-            &mut AstExpressionData::Call { ref name, ref mut generics, ref mut args } => {
+            &mut AstExpressionData::Call { ref name, ref generics, ref mut args } => {
                 let fn_sig = self.get_fn_sig(name)?;
                 // TODO: store generics
-                let mut gen_tys: Vec<_> = map_vec(generics, |t| tys.init_ty(t));
-                let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(tys, e, None))?;
+                let mut gen_tys = map_vec(generics, |t| tys.init_ty(self, t))?;
+                let arg_tys = map_vec_mut(args, |e| self.check_expr(tys, e, None))?;
                 self.check_fn(tys, &fn_sig, &mut gen_tys, &arg_tys, expect_ty)?
             }
             &mut AstExpressionData::ObjectCall { ref mut object,
@@ -93,7 +93,7 @@ impl Analyzer {
                 let obj_ty = self.check_expr(tys, object, None)?;
                 // TODO: store  generics
                 let (trait_id, fn_sigs) = self.get_obj_fn_sigs(tys, obj_ty, fn_name, true)?; //true = member
-                let mut gen_tys: Vec<_> = map_vec(generics, |t| tys.init_ty(t));
+                let mut gen_tys = map_vec(generics, |t| tys.init_ty(self, t))?;
 
                 if generics.len() == 0 {
                     for _ in 0..self.get_generics_len(trait_id, fn_name) {
@@ -103,19 +103,19 @@ impl Analyzer {
                     panic!(); //TODO: error
                 }
 
-                let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(tys, e, None))?;
+                let arg_tys = map_vec_mut(args, |e| self.check_expr(tys, e, None))?;
                 self.check_fns(tys, &fn_sigs, &mut gen_tys, &arg_tys, expect_ty)?
             }
             &mut AstExpressionData::StaticCall { ref obj_name,
-                                                 ref mut obj_generics,
+                                                 ref obj_generics,
                                                  ref fn_name,
-                                                 ref mut fn_generics,
+                                                 ref fn_generics,
                                                  ref mut args } => {
-                let mut obj_gen_tys: Vec<_> = map_vec(obj_generics, |t| tys.init_ty(t));
+                let mut obj_gen_tys = map_vec(obj_generics, |t| tys.init_ty(self, t))?;
                 let obj_ty = tys.make_ident_ty(self, obj_name, obj_gen_tys)?;
                 let (trait_id, fn_sigs) = self.get_obj_fn_sigs(tys, obj_ty, fn_name, false)?; //false = static
                 //TODO: store generics (for both...)
-                let mut fn_gen_tys: Vec<_> = map_vec(fn_generics, |t| tys.init_ty(t));
+                let mut fn_gen_tys = map_vec(fn_generics, |t| tys.init_ty(self, t))?;
 
                 if fn_generics.len() == 0 {
                     for _ in 0..self.get_generics_len(trait_id, fn_name) {
@@ -125,7 +125,7 @@ impl Analyzer {
                     panic!(); //TODO: error
                 }
 
-                let arg_tys: Vec<_> = map_vec_unwrap(args, |e| self.check_expr(tys, e, None))?;
+                let arg_tys = map_vec_mut(args, |e| self.check_expr(tys, e, None))?;
                 self.check_fns(tys, &fn_sigs, &mut fn_gen_tys, &arg_tys, expect_ty)?
             }
             _ => unimplemented!(),
@@ -356,13 +356,13 @@ impl Analyzer {
     }
 }
 
-fn map_vec<T, F, K>(vec: &Vec<T>, fun: F) -> Vec<K>
-    where F: FnMut(&T) -> K
+fn map_vec<T, F, K, E>(vec: &Vec<T>, fun: F) -> Result<Vec<K>, E>
+    where F: FnMut(&T) -> Result<K, E>
 {
     vec.iter().map(fun).collect()
 }
 
-fn map_vec_unwrap<T, F, K, E>(vec: &mut Vec<T>, fun: F) -> Result<Vec<K>, E>
+fn map_vec_mut<T, F, K, E>(vec: &mut Vec<T>, fun: F) -> Result<Vec<K>, E>
     where F: FnMut(&mut T) -> Result<K, E>
 {
     vec.iter_mut().map(fun).collect()

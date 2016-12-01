@@ -44,6 +44,7 @@ pub enum AnalyzeType {
     Tuple(Vec<Ty>),
     Array(Ty),
     Object(ObjId, Vec<Ty>),
+    Trait(TraitId, Vec<Ty>),
     TypeVariable(TyVarId),
 
     Same(Ty),
@@ -57,13 +58,37 @@ pub struct TypeSystem {
     tys: HashMap<Ty, AnalyzeType>,
     ty_history: HashMap<Ty, Option<AnalyzeType>>,
     in_snapshot: bool,
+
+    check_tys: Vec<Ty>,
 }
 
 impl TypeSystem {
     // TODO: reorganize these methods
 
-    pub fn init_ty(&self, ty: &AstType) -> Ty {
-        unimplemented!();
+    pub fn init_ty(&mut self, analyzer: &Analyzer, ty: &AstType) -> AnalyzeResult<Ty> {
+        let aty = match ty {
+            &AstType::Infer => AnalyzeType::Infer,
+            &AstType::None => AnalyzeType::Nothing,
+            &AstType::Int => AnalyzeType::Int,
+            &AstType::UInt => AnalyzeType::UInt,
+            &AstType::Float => AnalyzeType::Float,
+            &AstType::Char => AnalyzeType::Char,
+            &AstType::Bool => AnalyzeType::Boolean,
+            &AstType::String => AnalyzeType::String,
+            &AstType::Array { ref ty } => {
+                AnalyzeType::Array(self.init_ty(analyzer, ty)?)
+            }
+            &AstType::Tuple { ref types } => {
+                let tys: Result<Vec<_>, _> = types.iter().map(|t| self.init_ty(analyzer, t)).collect();
+                AnalyzeType::Tuple(tys?)
+            }
+            &AstType::Object(ref name, ref generics, pos) => {
+                let mut gen_tys: Result<Vec<_>, _> = generics.iter().map(|t| self.init_ty(analyzer, t)).collect(); //TODO: map_vec_unwrap into util?
+                return self.make_ident_ty(analyzer, name, gen_tys?); //TODO: unify in a better way
+            }
+        };
+
+        Ok(self.register_ty(aty))
     }
 
     pub fn make_ident_ty(&mut self,
@@ -73,7 +98,7 @@ impl TypeSystem {
                          -> AnalyzeResult<Ty> {
         if self.fn_generics.contains_key(name) {
             if generics.len() != 0 {
-                panic!(""); //TODO: error
+                return Err(());
             }
 
             let ty_var = self.fn_generics[name];
@@ -82,7 +107,7 @@ impl TypeSystem {
 
         if self.obj_generics.contains_key(name) {
             if generics.len() != 0 {
-                panic!(""); //TODO: error
+                return Err(());
             }
 
             let ty_var = self.obj_generics[name];
@@ -93,20 +118,38 @@ impl TypeSystem {
             if let Some(obj_skeleton) = analyzer.obj_skeletons.get(obj_id) {
                 if generics.len() != 0 {
                     if obj_skeleton.generic_ids.len() != generics.len() {
-                        panic!(); //TODO: error
+                        return Err(());
                     }
                 } else {
                     for _ in 0..obj_skeleton.generic_ids.len() {
                         generics.push(self.new_infer_ty());
                     }
                 }
+                Ok(self.register_ty(AnalyzeType::Object(*obj_id, generics)))
             } else {
-                unimplemented!(); //TODO: add to some struct to check later, drain at end.
+                let ty = self.register_ty(AnalyzeType::Object(*obj_id, generics));
+                self.check_tys.push(ty);
+                Ok(ty)
             }
-
-            Ok(self.register_ty(AnalyzeType::Object(*obj_id, generics)))
+        } else if let Some(trt_id) = analyzer.trt_ids.get(name) {
+            if let Some(trt_skeleton) = analyzer.trt_skeletons.get(trt_id) {
+                if generics.len() != 0 {
+                    if trt_skeleton.generic_ids.len() != generics.len() {
+                        return Err(());
+                    }
+                } else {
+                    for _ in 0..trt_skeleton.generic_ids.len() {
+                        generics.push(self.new_infer_ty());
+                    }
+                }
+                Ok(self.register_ty(AnalyzeType::Trait(*trt_id, generics)))
+            } else {
+                let ty = self.register_ty(AnalyzeType::Trait(*trt_id, generics));
+                self.check_tys.push(ty);
+                Ok(ty)
+            }
         } else {
-            panic!(""); //TODO: error
+            Err(())
         }
     }
 
@@ -135,7 +178,7 @@ impl TypeSystem {
 
     pub fn set_ty_checkpoint(&mut self) -> AnalyzeResult<()> {
         if self.in_snapshot {
-            panic!(""); //ERROR
+            return Err(());
         }
 
         self.in_snapshot = true;
@@ -179,6 +222,12 @@ impl TypeSystem {
             }
             AnalyzeType::Object(obj_id, generics) => {
                 AnalyzeType::Object(obj_id,
+                                    generics.into_iter()
+                                        .map(|t| self.replace_ty(t, replacements))
+                                        .collect())
+            }
+            AnalyzeType::Trait(trt_id, generics) => {
+                AnalyzeType::Trait(trt_id,
                                     generics.into_iter()
                                         .map(|t| self.replace_ty(t, replacements))
                                         .collect())
@@ -349,10 +398,21 @@ impl TypeSystem {
     }
 
     fn is_nullable(&self, ty: &AnalyzeType) -> bool {
-        unimplemented!();
+        match ty {
+            &AnalyzeType::NullInfer |
+            &AnalyzeType::String |
+            &AnalyzeType::Array(_) |
+            &AnalyzeType::Object(..) => true,
+            &AnalyzeType::Same(_) => unimplemented!(),
+            _ => false,
+        }
     }
 
     pub fn get_trait_id(&self, ty: Ty) -> TraitId {
-        unimplemented!();
+        if let &AnalyzeType::Trait(id, _) = &self.tys[&ty] {
+            id
+        } else {
+            unreachable!();
+        }
     }
 }
