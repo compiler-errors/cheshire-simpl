@@ -403,7 +403,7 @@ impl TypeSystem {
             &AnalyzeType::String |
             &AnalyzeType::Array(_) |
             &AnalyzeType::Object(..) => true,
-            &AnalyzeType::Same(_) => unimplemented!(),
+            &AnalyzeType::Same(_) => unreachable!(),
             _ => false,
         }
     }

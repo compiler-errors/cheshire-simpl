@@ -309,30 +309,29 @@ impl Analyzer {
     }
 
     fn initialize_trait(&self, trt: &AstTrait) -> AnalyzeTrait {
-        // for generic in trt.generics {
-        // if self.obj_generics.insert(generic, self.ty_id_count.next()).is_some() {
-        // panic!(""); //ERROR
-        // }
-        // }
-        //
-        // let generic_ids: Vec<_> = trt.generics.iter().map(|t| self.obj_generics[t]).collect();
-        // let mem_fns = HashMap::new();
-        // let static_fns = HashMap::new();
-        //
-        // for fun in &trt.functions {
-        // if mem_fns.contains_key(&fun.name) || static_fns.contains_key(&fun.name) {
-        // panic!(""); //ERROR
-        // }
-        //
-        // if fun.has_self { &mem_fns } else { &static_fns }
-        // .insert(fun.name.clone(), self.initialize_object_fn_sig(fun));
-        // }
-        //
-        // unimplemented!(); //TODO: add dummy impls
-        //
-        // self.obj_generics.clear();
-        // AnalyzeTrait::new(trt.id, generic_ids, mem_fns, static_fns)
-        unimplemented!();
+        for generic in trt.generics {
+            if self.obj_generics.insert(generic, self.ty_id_count.next()).is_some() {
+                panic!(""); //ERROR
+            }
+        }
+
+        let generic_ids: Vec<_> = trt.generics.iter().map(|t| self.obj_generics[t]).collect();
+        let mem_fns = HashMap::new();
+        let static_fns = HashMap::new();
+
+        for fun in &trt.functions {
+            if mem_fns.contains_key(&fun.name) || static_fns.contains_key(&fun.name) {
+                panic!(""); //ERROR
+            }
+
+            if fun.has_self { &mem_fns } else { &static_fns }
+                .insert(fun.name.clone(), self.initialize_object_fn_sig(fun));
+        }
+
+        unimplemented!(); //TODO: add dummy impls
+
+        self.obj_generics.clear();
+        AnalyzeTrait::new(trt.id, generic_ids, mem_fns, static_fns)
     }
 
     fn initialize_impl(&mut self, imp: &AstImpl) -> AnalyzeImpl {
