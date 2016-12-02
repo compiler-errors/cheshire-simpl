@@ -328,14 +328,34 @@ impl Analyzer {
                 .insert(fun.name.clone(), self.initialize_object_fn_sig(fun));
         }
 
-        unimplemented!(); //TODO: add dummy impls
+        let reqs = self.initialize_reqs(tys, &trt.restrictions);
 
         self.obj_generics.clear();
-        AnalyzeTrait::new(trt.id, generic_ids, mem_fns, static_fns)
+        AnalyzeTrait::new(trt.id, generic_ids, mem_fns, static_fns, reqs)
     }
 
     fn initialize_impl(&mut self, imp: &AstImpl) -> AnalyzeImpl {
         unimplemented!();
+    }
+
+    fn initialize_reqs(&mut self, restrictions: &Vec<AstTypeRestriction>) -> AnalyzeResult<Vec<AnalyzeRequirement>> {
+        let mut reqs = Vec::new();
+
+        for res in restrictions {
+            let ty = tys.init_ty(self, res.ty)?;
+            let trt = tys.init_ty(self, res.trt)?;
+
+            let ty_var = tys.get_ty_var(ty);
+
+            if !tys.is_trait(trt) {
+                return Err(());
+            }
+
+            self.impls.push(AnalyzeImpl::dummy(ty, trt));
+            reqs.push(AnalyzeRequirement::new(ty_var, trt));
+        }
+
+        reqs
     }
 
     fn check_integrity_impl(&self, imp: &AnalyzeImpl) {
