@@ -23,12 +23,12 @@ pub struct Analyzer {
     fns: HashMap<String, FnSignature>,
 
     obj_id_count: Counter,
-    obj_ids: HashMap<String, ObjId>,
+    obj_info: HashMap<String, (ObjId, usize)>,
     obj_names: HashMap<ObjId, String>, // TODO: possible not necessary (merge into AnalyzeObject)
     obj_skeletons: HashMap<ObjId, AnalyzeObject>,
 
     trt_id_count: Counter,
-    trt_ids: HashMap<String, TraitId>,
+    trt_info: HashMap<String, (TraitId, usize)>,
     trt_names: HashMap<TraitId, String>, // TODO: possible not necessary (merge into AnalyzeTrait)
     trt_skeletons: HashMap<TraitId, AnalyzeTrait>,
 
@@ -36,39 +36,42 @@ pub struct Analyzer {
 }
 
 impl Analyzer {
-    fn check_file(&mut self, f: ParseFile, tys: &mut TypeSystem) {
+    fn check_file(&mut self, f: ParseFile, tys: &mut TypeSystem) -> AnalyzeResult<()> {
         let ParseFile { file, mut objects, functions, export_fns, mut traits, mut impls } = f;
 
         for obj in &mut objects {
             obj.id = ObjId(self.obj_id_count.next());
-            self.obj_ids.insert(obj.name.clone(), obj.id);
+            self.obj_info.insert(obj.name.clone(), (obj.id, obj.generics.len()));
             self.obj_names.insert(obj.id, obj.name.clone());
         }
 
         for trt in &mut traits {
             trt.id = TraitId(self.trt_id_count.next());
-            self.trt_ids.insert(trt.name.clone(), trt.id);
+            self.trt_info.insert(trt.name.clone(), (trt.id, trt.generics.len()));
+            // TODO: check for conflicts with objects too..
             self.trt_names.insert(trt.id, trt.name.clone());
         }
 
         for trt in &traits {
-            let analyze_trt = self.initialize_trait(trt);
+            let analyze_trt = self.initialize_trait(tys, trt)?;
             self.trt_skeletons.insert(trt.id, analyze_trt);
         }
 
         for obj in &objects {
-            let analyze_obj = self.initialize_object(obj);
+            let analyze_obj = self.initialize_object(tys, obj)?;
             self.obj_skeletons.insert(obj.id, analyze_obj);
         }
 
         for imp in &impls {
-            let analyze_impl = self.initialize_impl(imp);
+            let analyze_impl = self.initialize_impl(tys, imp)?;
             self.impls.push(analyze_impl);
         }
 
         for imp in &self.impls {
             self.check_integrity_impl(imp);
         }
+
+        Ok(())
     }
 
     fn check_expr(&self,
@@ -96,11 +99,11 @@ impl Analyzer {
                 let mut gen_tys = map_vec(generics, |t| tys.init_ty(self, t))?;
 
                 if generics.len() == 0 {
-                    for _ in 0..self.get_generics_len(trait_id, fn_name) {
+                    for _ in 0..self.get_generics_len(trait_id, fn_name, true) {
                         gen_tys.push(tys.new_infer_ty());
                     }
-                } else if generics.len() != self.get_generics_len(trait_id, fn_name) {
-                    panic!(); //TODO: error
+                } else if generics.len() != self.get_generics_len(trait_id, fn_name, true) {
+                    return Err(());
                 }
 
                 let arg_tys = map_vec_mut(args, |e| self.check_expr(tys, e, None))?;
@@ -112,16 +115,17 @@ impl Analyzer {
                                                  ref fn_generics,
                                                  ref mut args } => {
                 let mut obj_gen_tys = map_vec(obj_generics, |t| tys.init_ty(self, t))?;
-                let obj_ty = tys.make_ident_ty(self, obj_name, obj_gen_tys)?;
+                let obj_aty = tys.make_ident_ty(self, obj_name, obj_gen_tys)?;
+                let obj_ty = tys.register_ty(obj_aty); //TODO: ugly
                 let (trait_id, fn_sigs) = self.get_obj_fn_sigs(tys, obj_ty, fn_name, false)?; //false = static
                 //TODO: store generics (for both...)
                 let mut fn_gen_tys = map_vec(fn_generics, |t| tys.init_ty(self, t))?;
 
                 if fn_generics.len() == 0 {
-                    for _ in 0..self.get_generics_len(trait_id, fn_name) {
+                    for _ in 0..self.get_generics_len(trait_id, fn_name, false) {
                         fn_gen_tys.push(tys.new_infer_ty());
                     }
-                } else if fn_generics.len() != self.get_generics_len(trait_id, fn_name) {
+                } else if fn_generics.len() != self.get_generics_len(trait_id, fn_name, false) {
                     panic!(); //TODO: error
                 }
 
@@ -214,8 +218,8 @@ impl Analyzer {
 
         for req in reqs {
             let ty = replacements[&req.ty_var];
-            let trt = tys.replace_ty(req.trt, replacements);
-            let trait_id = tys.get_trait_id(trt);
+            let trt = tys.replace_trait(&req.trt, replacements);
+            let trait_id = trt.id; //TODO: give name?
 
             let mut satisfied = false;
 
@@ -227,10 +231,10 @@ impl Analyzer {
                 let imp_replacements: HashMap<_, _> =
                     imp.generic_ids.iter().map(|t| (*t, tys.new_infer_ty())).collect();
                 let imp_ty = tys.replace_ty(imp.imp_ty, &imp_replacements);
-                let imp_trt = tys.replace_ty(imp.imp_trt, &imp_replacements);
+                let imp_trt = tys.replace_trait(&imp.imp_trt, &imp_replacements);
 
                 if tys.union_ty_right(ty, imp_ty).is_ok() &&
-                   tys.union_ty_right(trt, imp_trt).is_ok() &&
+                   tys.union_trait_right(&trt, &imp_trt).is_ok() &&
                    self.check_requirements(tys, &imp_replacements, &imp.reqs, depth - 1).is_ok() {
                     satisfied = true;
                     break;
@@ -261,7 +265,7 @@ impl Analyzer {
         for imp in &self.impls {
             if self.trait_has_function(imp.trait_id, name, is_member_fn) {
                 if let Some(trait_ty) = self.match_ty_impl(tys, obj_ty, imp) {
-                    let fn_sig = self.get_trait_function(trait_ty, name);
+                    let fn_sig = self.get_trait_function(tys, &trait_ty, name, is_member_fn);
 
                     if let Some(trait_id) = candidate_trt {
                         if trait_id != imp.trait_id {
@@ -282,7 +286,11 @@ impl Analyzer {
         Ok((candidate_trt.unwrap(), sigs))
     }
 
-    fn match_ty_impl(&self, tys: &mut TypeSystem, obj_ty: Ty, imp: &AnalyzeImpl) -> Option<Ty> {
+    fn match_ty_impl(&self,
+                     tys: &mut TypeSystem,
+                     obj_ty: Ty,
+                     imp: &AnalyzeImpl)
+                     -> Option<AnalyzeTraitInstance> {
         // TODO: Result??
         let replacements: HashMap<_, _> =
             imp.generic_ids.iter().map(|t| (*t, tys.new_infer_ty())).collect();
@@ -297,81 +305,178 @@ impl Analyzer {
         }
 
         // I don't believe I need to reset the checkpoint...
-        Some(tys.replace_ty(imp.imp_trt, &replacements))
+        Some(tys.replace_trait(&imp.imp_trt, &replacements))
     }
 
-    fn initialize_object(&self, obj: &AstObject) -> AnalyzeObject {
-        unimplemented!();
-    }
-
-    fn initialize_object_fn_sig(&self, fun: &AstObjectFnSignature) -> FnSignature {
-        unimplemented!();
-    }
-
-    fn initialize_trait(&self, trt: &AstTrait) -> AnalyzeTrait {
-        for generic in trt.generics {
-            if self.obj_generics.insert(generic, self.ty_id_count.next()).is_some() {
-                panic!(""); //ERROR
+    fn initialize_object(&mut self,
+                         tys: &mut TypeSystem,
+                         obj: &AstObject)
+                         -> AnalyzeResult<AnalyzeObject> {
+        for generic in &obj.generics {
+            if tys.obj_generics
+                .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
+                .is_some() {
+                return Err(());
             }
         }
 
-        let generic_ids: Vec<_> = trt.generics.iter().map(|t| self.obj_generics[t]).collect();
-        let mem_fns = HashMap::new();
-        let static_fns = HashMap::new();
+        let generic_ids: Vec<_> = obj.generics.iter().map(|t| tys.obj_generics[t]).collect();
+        let mut member_ids = HashMap::new();
+        let mut member_tys = Vec::new();
 
-        for fun in &trt.functions {
-            if mem_fns.contains_key(&fun.name) || static_fns.contains_key(&fun.name) {
-                panic!(""); //ERROR
-            }
-
-            if fun.has_self { &mem_fns } else { &static_fns }
-                .insert(fun.name.clone(), self.initialize_object_fn_sig(fun));
-        }
-
-        let reqs = self.initialize_reqs(tys, &trt.restrictions);
-
-        self.obj_generics.clear();
-        AnalyzeTrait::new(trt.id, generic_ids, mem_fns, static_fns, reqs)
-    }
-
-    fn initialize_impl(&mut self, imp: &AstImpl) -> AnalyzeImpl {
-        unimplemented!();
-    }
-
-    fn initialize_reqs(&mut self, restrictions: &Vec<AstTypeRestriction>) -> AnalyzeResult<Vec<AnalyzeRequirement>> {
-        let mut reqs = Vec::new();
-
-        for res in restrictions {
-            let ty = tys.init_ty(self, res.ty)?;
-            let trt = tys.init_ty(self, res.trt)?;
-
-            let ty_var = tys.get_ty_var(ty);
-
-            if !tys.is_trait(trt) {
+        for ref mem in &obj.members {
+            if member_ids.contains_key(&mem.name) {
                 return Err(());
             }
 
-            self.impls.push(AnalyzeImpl::dummy(ty, trt));
+            let mem_id = member_tys.len() as u32;
+            let mem_ty = tys.init_ty(self, &mem.member_type)?;
+            member_tys.push(mem_ty);
+            member_ids.insert(mem.name.clone(), mem_id);
+        }
+
+        let reqs = self.initialize_reqs(tys, &obj.restrictions)?;
+
+        tys.obj_generics.clear();
+        Ok(AnalyzeObject::new(obj.id, generic_ids, member_ids, member_tys, reqs))
+    }
+
+    fn initialize_object_fn_sig(&mut self, tys: &mut TypeSystem, fun: &AstObjectFnSignature) -> AnalyzeResult<FnSignature> {
+        for generic in &fun.generics {
+            if tys.fn_generics
+                .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
+                .is_some() {
+                return Err(());
+            }
+        }
+
+        let generic_ids: Vec<_> = fun.generics.iter().map(|t| tys.fn_generics[t]).collect();
+        let params = map_vec(&fun.parameter_list, |p| tys.init_ty(self, &p.ty))?;
+        let reqs = self.initialize_reqs(tys, &fun.restrictions)?;
+        let return_ty = tys.init_ty(self, &fun.return_type)?;
+
+        tys.fn_generics.clear();
+        Ok(FnSignature::new(params, generic_ids, reqs, return_ty))
+    }
+
+    fn initialize_trait(&mut self,
+                        tys: &mut TypeSystem,
+                        trt: &AstTrait)
+                        -> AnalyzeResult<AnalyzeTrait> {
+        for generic in &trt.generics {
+            if tys.obj_generics
+                .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
+                .is_some() {
+                return Err(());
+            }
+        }
+
+        let generic_ids: Vec<_> = trt.generics.iter().map(|t| tys.obj_generics[t]).collect();
+        let mut mem_fns = HashMap::new();
+        let mut static_fns = HashMap::new();
+
+        for fun in &trt.functions {
+            if mem_fns.contains_key(&fun.name) || static_fns.contains_key(&fun.name) {
+                return Err(());
+            }
+
+            if fun.has_self {
+                mem_fns.insert(fun.name.clone(), self.initialize_object_fn_sig(tys, fun)?);
+            } else {
+                static_fns.insert(fun.name.clone(), self.initialize_object_fn_sig(tys, fun)?);
+            }
+        }
+
+        let reqs = self.initialize_reqs(tys, &trt.restrictions)?;
+
+        tys.obj_generics.clear();
+        Ok(AnalyzeTrait::new(trt.id, generic_ids, mem_fns, static_fns, reqs))
+    }
+
+    fn initialize_impl(&mut self, tys: &TypeSystem, imp: &AstImpl) -> AnalyzeResult<AnalyzeImpl> {
+        unimplemented!();
+    }
+
+    fn initialize_reqs(&mut self,
+                       tys: &mut TypeSystem,
+                       restrictions: &Vec<AstTypeRestriction>)
+                       -> AnalyzeResult<Vec<AnalyzeRequirement>> {
+        let mut reqs = Vec::new();
+
+        for res in restrictions {
+            let ty = tys.init_ty(self, &res.ty)?;
+            let ty_var = tys.get_ty_var(ty)?;
+            let trt = tys.init_trait_instance(self, &res.trt)?;
+
+            self.impls.push(AnalyzeImpl::dummy(ty, trt.clone()));
             reqs.push(AnalyzeRequirement::new(ty_var, trt));
         }
 
-        reqs
+        Ok(reqs)
     }
 
     fn check_integrity_impl(&self, imp: &AnalyzeImpl) {
         unimplemented!();
     }
 
-    fn get_generics_len(&self, trt: TraitId, fn_name: &String) -> usize {
-        unimplemented!();
+    pub fn get_object_info(&self, name: &String) -> Option<(ObjId, usize)> {
+        self.obj_info.get(name).cloned()
+    }
+
+    pub fn get_trait_info(&self, name: &String) -> Option<(TraitId, usize)> {
+        self.trt_info.get(name).cloned()
     }
 
     fn trait_has_function(&self, trt_id: TraitId, name: &String, member: bool) -> bool {
-        unimplemented!();
+        if let Some(trt_skeleton) = self.trt_skeletons.get(&trt_id) {
+            if member {
+                trt_skeleton.member_fns.contains_key(name)
+            } else {
+                trt_skeleton.static_fns.contains_key(name)
+            }
+        } else {
+            unreachable!();
+        }
     }
 
-    fn get_trait_function(&self, trt_ty: Ty, name: &String) -> FnSignature {
-        unimplemented!();
+    fn get_trait_function(&self,
+                          tys: &mut TypeSystem,
+                          trt: &AnalyzeTraitInstance,
+                          name: &String,
+                          member: bool)
+                          -> FnSignature {
+        let ref trt_skeleton = self.trt_skeletons[&trt.id];
+
+        let fn_sig = if member {
+            &trt_skeleton.member_fns[name]
+        } else {
+            &trt_skeleton.static_fns[name]
+        };
+
+        let replacements: HashMap<_, _> =
+            trt_skeleton.generic_ids.iter().zip(&trt.generics).map(|(a, b)| (*a, *b)).collect();
+        let repl_params: Vec<_> =
+            fn_sig.params.iter().map(|t| tys.replace_ty(*t, &replacements)).collect();
+        let repl_reqs: Vec<_> = fn_sig.reqs
+            .iter()
+            .map(|r| AnalyzeRequirement::new(r.ty_var, tys.replace_trait(&r.trt, &replacements)))
+            .collect();
+        let repl_return_ty = tys.replace_ty(fn_sig.return_ty, &replacements);
+
+        FnSignature::new(repl_params,
+                         fn_sig.generic_ids.clone(),
+                         repl_reqs,
+                         repl_return_ty)
+    }
+
+    pub fn get_generics_len(&self, trt: TraitId, fn_name: &String, member: bool) -> usize {
+        let ref trt_skeleton = self.trt_skeletons[&trt];
+
+        if member {
+            trt_skeleton.member_fns[fn_name].generic_ids.len()
+        } else {
+            trt_skeleton.static_fns[fn_name].generic_ids.len()
+        }
     }
 }
 

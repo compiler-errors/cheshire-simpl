@@ -10,6 +10,12 @@ pub struct Ty(pub u32);
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub struct TyVarId(pub u32);
 
+#[derive(Clone)]
+pub struct AnalyzeTraitInstance {
+    pub id: TraitId,
+    pub generics: Vec<Ty>,
+}
+
 pub const TY_NOTHING: Ty = Ty(1);
 pub const TY_BOOLEAN: Ty = Ty(2);
 pub const TY_INT: Ty = Ty(3);
@@ -44,22 +50,21 @@ pub enum AnalyzeType {
     Tuple(Vec<Ty>),
     Array(Ty),
     Object(ObjId, Vec<Ty>),
-    Trait(TraitId, Vec<Ty>),
+    // Trait(TraitId, Vec<Ty>),
     TypeVariable(TyVarId),
 
     Same(Ty),
 }
 
 pub struct TypeSystem {
-    fn_generics: HashMap<String, TyVarId>,
-    obj_generics: HashMap<String, TyVarId>,
+    pub fn_generics: HashMap<String, TyVarId>,
+    pub obj_generics: HashMap<String, TyVarId>,
+    pub ty_var_id_count: Counter,
 
     ty_id_count: Counter,
     tys: HashMap<Ty, AnalyzeType>,
     ty_history: HashMap<Ty, Option<AnalyzeType>>,
     in_snapshot: bool,
-
-    check_tys: Vec<Ty>,
 }
 
 impl TypeSystem {
@@ -75,16 +80,16 @@ impl TypeSystem {
             &AstType::Char => AnalyzeType::Char,
             &AstType::Bool => AnalyzeType::Boolean,
             &AstType::String => AnalyzeType::String,
-            &AstType::Array { ref ty } => {
-                AnalyzeType::Array(self.init_ty(analyzer, ty)?)
-            }
+            &AstType::Array { ref ty } => AnalyzeType::Array(self.init_ty(analyzer, ty)?),
             &AstType::Tuple { ref types } => {
-                let tys: Result<Vec<_>, _> = types.iter().map(|t| self.init_ty(analyzer, t)).collect();
+                let tys: Result<Vec<_>, _> =
+                    types.iter().map(|t| self.init_ty(analyzer, t)).collect();
                 AnalyzeType::Tuple(tys?)
             }
             &AstType::Object(ref name, ref generics, pos) => {
-                let mut gen_tys: Result<Vec<_>, _> = generics.iter().map(|t| self.init_ty(analyzer, t)).collect(); //TODO: map_vec_unwrap into util?
-                return self.make_ident_ty(analyzer, name, gen_tys?); //TODO: unify in a better way
+                let mut gen_tys: Result<Vec<_>, _> =
+                    generics.iter().map(|t| self.init_ty(analyzer, t)).collect(); //TODO: map_vec_unwrap into util?
+                self.make_ident_ty(analyzer, name, gen_tys?)? //TODO: unify in a better way
             }
         };
 
@@ -95,14 +100,14 @@ impl TypeSystem {
                          analyzer: &Analyzer,
                          name: &String,
                          mut generics: Vec<Ty>)
-                         -> AnalyzeResult<Ty> {
+                         -> AnalyzeResult<AnalyzeType> {
         if self.fn_generics.contains_key(name) {
             if generics.len() != 0 {
                 return Err(());
             }
 
             let ty_var = self.fn_generics[name];
-            return Ok(self.register_ty(AnalyzeType::TypeVariable(ty_var)));
+            return Ok(AnalyzeType::TypeVariable(ty_var));
         }
 
         if self.obj_generics.contains_key(name) {
@@ -111,45 +116,43 @@ impl TypeSystem {
             }
 
             let ty_var = self.obj_generics[name];
-            return Ok(self.register_ty(AnalyzeType::TypeVariable(ty_var)));
+            return Ok(AnalyzeType::TypeVariable(ty_var));
         }
 
-        if let Some(obj_id) = analyzer.obj_ids.get(name) {
-            if let Some(obj_skeleton) = analyzer.obj_skeletons.get(obj_id) {
+        if let Some((obj_id, generics_len)) = analyzer.get_object_info(name) {
+            if generics.len() != generics_len {
                 if generics.len() != 0 {
-                    if obj_skeleton.generic_ids.len() != generics.len() {
-                        return Err(());
-                    }
-                } else {
-                    for _ in 0..obj_skeleton.generic_ids.len() {
-                        generics.push(self.new_infer_ty());
-                    }
+                    return Err(());
                 }
-                Ok(self.register_ty(AnalyzeType::Object(*obj_id, generics)))
-            } else {
-                let ty = self.register_ty(AnalyzeType::Object(*obj_id, generics));
-                self.check_tys.push(ty);
-                Ok(ty)
-            }
-        } else if let Some(trt_id) = analyzer.trt_ids.get(name) {
-            if let Some(trt_skeleton) = analyzer.trt_skeletons.get(trt_id) {
-                if generics.len() != 0 {
-                    if trt_skeleton.generic_ids.len() != generics.len() {
-                        return Err(());
-                    }
-                } else {
-                    for _ in 0..trt_skeleton.generic_ids.len() {
-                        generics.push(self.new_infer_ty());
-                    }
+
+                for _ in 0..generics_len {
+                    generics.push(self.new_infer_ty());
                 }
-                Ok(self.register_ty(AnalyzeType::Trait(*trt_id, generics)))
-            } else {
-                let ty = self.register_ty(AnalyzeType::Trait(*trt_id, generics));
-                self.check_tys.push(ty);
-                Ok(ty)
             }
+
+            Ok(AnalyzeType::Object(obj_id, generics))
         } else {
+            // TODO: error for trait?
             Err(())
+        }
+    }
+
+    pub fn init_trait_instance(&mut self,
+                               analyzer: &Analyzer,
+                               ty: &AstType)
+                               -> AnalyzeResult<AnalyzeTraitInstance> {
+        match ty {
+            &AstType::Object(ref name, ref generics, pos) => {
+                let mut gen_tys: Result<Vec<_>, _> =
+                    generics.iter().map(|t| self.init_ty(analyzer, t)).collect(); //TODO: map_vec
+                let (id, generics_len) = analyzer.get_trait_info(name).ok_or_else(|| ())?;
+                Ok(AnalyzeTraitInstance {
+                    // TODO: new
+                    id: id,
+                    generics: gen_tys?,
+                })
+            }
+            _ => Err(()),
         }
     }
 
@@ -157,7 +160,7 @@ impl TypeSystem {
         self.register_ty(AnalyzeType::Infer)
     }
 
-    fn register_ty(&mut self, aty: AnalyzeType) -> Ty {
+    pub fn register_ty(&mut self, aty: AnalyzeType) -> Ty {
         let id = Ty(self.ty_id_count.next());
         self.tys.insert(id, aty);
 
@@ -226,13 +229,6 @@ impl TypeSystem {
                                         .map(|t| self.replace_ty(t, replacements))
                                         .collect())
             }
-            AnalyzeType::Trait(trt_id, generics) => {
-                AnalyzeType::Trait(trt_id,
-                                    generics.into_iter()
-                                        .map(|t| self.replace_ty(t, replacements))
-                                        .collect())
-            }
-
             AnalyzeType::TypeVariable(var_id) => {
                 if replacements.contains_key(&var_id) {
                     AnalyzeType::Same(replacements[&var_id])
@@ -240,11 +236,20 @@ impl TypeSystem {
                     AnalyzeType::TypeVariable(var_id)
                 }
             }
-
             AnalyzeType::Same(same_ty) => AnalyzeType::Same(self.replace_ty(same_ty, replacements)),
         };
 
         self.register_ty(repl_ty)
+    }
+
+    pub fn replace_trait(&mut self,
+                         trt: &AnalyzeTraitInstance,
+                         replacements: &HashMap<TyVarId, Ty>)
+                         -> AnalyzeTraitInstance {
+        AnalyzeTraitInstance {
+            id: trt.id,
+            generics: trt.generics.iter().map(|t| self.replace_ty(*t, replacements)).collect(),
+        }
     }
 
     pub fn union_ty(&mut self, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
@@ -397,6 +402,21 @@ impl TypeSystem {
         Ok(())
     }
 
+    pub fn union_trait_right(&mut self,
+                             trt1: &AnalyzeTraitInstance,
+                             trt2: &AnalyzeTraitInstance)
+                             -> AnalyzeResult<()> {
+        if trt1.id != trt2.id {
+            Err(())
+        } else {
+            for (ty1, ty2) in trt1.generics.iter().zip(trt2.generics.iter()) {
+                self.union_ty_right(*ty1, *ty2)?;
+            }
+
+            Ok(())
+        }
+    }
+
     fn is_nullable(&self, ty: &AnalyzeType) -> bool {
         match ty {
             &AnalyzeType::NullInfer |
@@ -408,11 +428,11 @@ impl TypeSystem {
         }
     }
 
-    pub fn get_trait_id(&self, ty: Ty) -> TraitId {
-        if let &AnalyzeType::Trait(id, _) = &self.tys[&ty] {
-            id
-        } else {
-            unreachable!();
+    pub fn get_ty_var(&self, ty: Ty) -> AnalyzeResult<TyVarId> {
+        match &self.tys[&ty] {
+            &AnalyzeType::TypeVariable(ty_var) => Ok(ty_var),
+            &AnalyzeType::Same(same_ty) => self.get_ty_var(same_ty),
+            _ => Err(()),
         }
     }
 }

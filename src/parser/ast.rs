@@ -801,9 +801,9 @@ impl AstTrait {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AstTypeRestriction {
-    pos: usize,
-    ty: AstType,
-    trt: AstType,
+    pub pos: usize,
+    pub ty: AstType,
+    pub trt: AstType,
 }
 
 impl AstTypeRestriction {
