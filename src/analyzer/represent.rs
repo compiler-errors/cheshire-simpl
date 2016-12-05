@@ -1,15 +1,66 @@
 use std::collections::HashMap;
-use super::type_system::{Ty, TyVarId, AnalyzeTraitInstance}; //TODO: move into common types mod
 
 pub type VarId = u32;
 pub type StringId = u32;
 pub type MemberId = u32;
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct Ty(pub u32);
+
+pub const TY_NOTHING: Ty = Ty(1);
+pub const TY_BOOLEAN: Ty = Ty(2);
+pub const TY_INT: Ty = Ty(3);
+pub const TY_UINT: Ty = Ty(4);
+pub const TY_FLOAT: Ty = Ty(5);
+pub const TY_CHAR: Ty = Ty(6);
+pub const TY_STRING: Ty = Ty(7);
+
+pub const TY_FIRST_NEW_ID: Ty = Ty(8);
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct TyVarId(pub u32);
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub struct ObjId(pub u32);
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub struct TraitId(pub u32);
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+/** AnalyzeType is the type used by the Analyzer module.
+  *
+  * The types in this enum are pretty self explanatory,
+  * but one caveat that should be noticed is the Same
+  * type. Same(ty) essentially conveys that the type is
+  * identical to another type, without having to copy
+  * the contents of that type or other issues introduced
+  * by the Infer and Union processes.
+  */
+pub enum AnalyzeType {
+    Infer,
+    NullInfer,
+
+    Nothing,
+    Boolean,
+    Int,
+    UInt,
+    Float,
+    Char,
+    String,
+    Tuple(Vec<Ty>),
+    Array(Ty),
+    Object(ObjId, Vec<Ty>),
+    // Trait(TraitId, Vec<Ty>),
+    TypeVariable(TyVarId),
+
+    Same(Ty),
+}
+
+#[derive(Clone)]
+pub struct AnalyzeTraitInstance {
+    pub id: TraitId,
+    pub generics: Vec<Ty>,
+}
 
 #[derive(Clone)]
 /// FnSignature stores the parameter and return types of a function.
@@ -68,11 +119,34 @@ pub struct AnalyzeImpl {
     pub trait_id: TraitId,
     pub generic_ids: Vec<TyVarId>,
     pub reqs: Vec<AnalyzeRequirement>,
+    pub dummy: bool
 }
 
 impl AnalyzeImpl {
     pub fn dummy(ty: Ty, trt: AnalyzeTraitInstance) -> AnalyzeImpl {
-        unimplemented!();
+        AnalyzeImpl {
+            imp_ty: ty,
+            trait_id: trt.id,
+            imp_trt: trt,
+            generic_ids: Vec::new(),
+            reqs: Vec::new(),
+            dummy: true
+        }
+    }
+
+    pub fn new(imp_ty: Ty,
+               imp_trt: AnalyzeTraitInstance,
+               generic_ids: Vec<TyVarId>,
+               reqs: Vec<AnalyzeRequirement>)
+               -> AnalyzeImpl {
+        AnalyzeImpl {
+            imp_ty: imp_ty,
+            trait_id: imp_trt.id,
+            imp_trt: imp_trt,
+            generic_ids: generic_ids,
+            reqs: reqs,
+            dummy: false
+        }
     }
 }
 
@@ -110,6 +184,9 @@ pub struct AnalyzeRequirement {
 
 impl AnalyzeRequirement {
     pub fn new(ty_var: TyVarId, trt: AnalyzeTraitInstance) -> AnalyzeRequirement {
-        unimplemented!();
+        AnalyzeRequirement {
+            ty_var: ty_var,
+            trt: trt
+        }
     }
 }

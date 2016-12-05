@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::path::Path;
 use std::io::Read;
 
-mod analyzer;
+pub mod analyzer;
 mod parser;
 mod lexer;
 mod util;
