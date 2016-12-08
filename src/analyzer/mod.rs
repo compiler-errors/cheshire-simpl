@@ -92,7 +92,7 @@ pub fn analyze_file(f: ParseFile) {
         str_id_count: Counter::new(1),
         strings: HashMap::new(),
         ty_id_count: Counter::new(TY_FIRST_NEW_ID),
-        tys: HashMap::new(),
+        tys: ty_map,
         ty_history: HashMap::new(),
         in_snapshot: false,
     };
@@ -166,6 +166,7 @@ fn check_file(f: ParseFile, ana: &mut Analyzer, tys: &mut TypeSystem) -> Analyze
 
     for mut fun in functions {
         check_function(ana, tys, &mut fun)?;
+        println!("FUNCTION {} : \n{:#?}", &fun.signature.name, &fun);
         ana.fns.insert(fun.signature.name.clone(), fun);
     }
 
@@ -1106,6 +1107,7 @@ fn replace_trait(tys: &mut TypeSystem,
 }
 
 fn union_ty(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
+    println!("Unioning {} and {}", ty1.0, ty2.0);
     if ty1 == ty2 {
         return Ok(());
     }
