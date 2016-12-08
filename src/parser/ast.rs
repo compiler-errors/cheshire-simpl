@@ -98,8 +98,8 @@ impl AstFunction {
                 restrictions: restrictions,
             },
             definition: definition,
-            beginning_of_vars: 0,
-            end_of_vars: 0,
+            beginning_of_vars: VarId(0),
+            end_of_vars: VarId(0),
         }
     }
 }
@@ -221,7 +221,7 @@ impl AstStatement {
                 var_name: var_name,
                 ty: ty,
                 value: value,
-                var_id: 0,
+                var_id: VarId(0),
             },
             pos: pos,
         }
@@ -378,7 +378,7 @@ pub enum AstExpressionData {
         mem_idx: MemberId,
     },
 
-    Allocate { object: String },
+    Allocate { object: AstType },
 
     Not(SubExpression),
     Negate(SubExpression),
@@ -418,7 +418,7 @@ impl AstExpression {
             expr: AstExpressionData::String {
                 string: string,
                 len: len,
-                id: 0,
+                id: StringId(0),
             },
             ty: Ty(0),
             pos: pos,
@@ -461,7 +461,7 @@ impl AstExpression {
         AstExpression {
             expr: AstExpressionData::Identifier {
                 name: identifier,
-                var_id: 0,
+                var_id: VarId(0),
             },
             ty: Ty(0),
             pos: pos,
@@ -573,14 +573,14 @@ impl AstExpression {
             expr: AstExpressionData::ObjectAccess {
                 object: Box::new(object),
                 mem_name: mem_name,
-                mem_idx: 0,
+                mem_idx: MemberId(0),
             },
             ty: Ty(0),
             pos: pos,
         }
     }
 
-    pub fn allocate(object: String, pos: usize) -> AstExpression {
+    pub fn allocate(object: AstType, pos: usize) -> AstExpression {
         AstExpression {
             expr: AstExpressionData::Allocate { object: object },
             ty: Ty(0),
@@ -746,8 +746,8 @@ impl AstObjectFunction {
         AstObjectFunction {
             signature: sig,
             definition: definition,
-            beginning_of_vars: 0,
-            end_of_vars: 0,
+            beginning_of_vars: VarId(0),
+            end_of_vars: VarId(0),
         }
     }
 }

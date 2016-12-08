@@ -168,7 +168,6 @@ impl<'a> Parser<'a> {
 
                 export_fns.push(fun_result.unwrap());
             } else if self.check(Token::Trait) {
-                self.bump();
                 let trait_result = self.parse_trait();
 
                 if let Err(e) = trait_result {
@@ -177,7 +176,6 @@ impl<'a> Parser<'a> {
 
                 traits.push(trait_result.unwrap());
             } else if self.check(Token::Impl) {
-                self.bump();
                 let impl_result = self.parse_impl();
 
                 if let Err(e) = impl_result {
@@ -249,7 +247,7 @@ impl<'a> Parser<'a> {
 
         let mut generics = Vec::new();
 
-        while !self.check_consume(Token::RParen) || generics.len() == 0 {
+        while !self.check_consume(Token::Gt) || generics.len() == 0 {
             if generics.len() != 0 {
                 self.expect_consume(Token::Comma)?;
             }
@@ -267,7 +265,7 @@ impl<'a> Parser<'a> {
 
         let mut restrictions = Vec::new();
 
-        while !self.check(Token::Comma) || restrictions.len() == 0 {
+        while self.check(Token::Comma) || restrictions.len() == 0 {
             // TODO: prettify
             if restrictions.len() != 0 {
                 self.expect_consume(Token::Comma)?;
@@ -670,7 +668,7 @@ impl<'a> Parser<'a> {
             }
             &Token::Allocate => {
                 self.bump();
-                let obj = self.expect_get_identifier()?;
+                let obj = self.parse_object_type()?;
                 Ok(AstExpression::allocate(obj, pos))
             }
             &Token::LParen => self.parse_paren_expr(),
@@ -840,7 +838,7 @@ impl<'a> Parser<'a> {
 
         let mut generics = Vec::new();
 
-        while !self.check_consume(Token::RParen) || generics.len() == 0 {
+        while !self.check_consume(Token::Gt) || generics.len() == 0 {
             if generics.len() != 0 {
                 self.expect_consume(Token::Comma)?;
             }

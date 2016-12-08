@@ -1,8 +1,13 @@
 use std::collections::HashMap;
 
-pub type VarId = u32;
-pub type StringId = u32;
-pub type MemberId = u32;
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct VarId(pub u32);
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct StringId(pub u32);
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
+pub struct MemberId(pub u32);
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub struct Ty(pub u32);

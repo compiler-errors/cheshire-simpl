@@ -12,4 +12,8 @@ impl Counter {
 
         self.i - 1
     }
+
+    pub fn current(&self) -> u32 {
+        self.i
+    }
 }

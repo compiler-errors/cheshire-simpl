@@ -88,7 +88,7 @@ impl Display for Token {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             &Token::Dot => write!(f, "."),
-            &Token::Comma => write!(f, "),"),
+            &Token::Comma => write!(f, ","),
             &Token::Colon => write!(f, ":"),
             &Token::ColonColon => write!(f, "::"),
             &Token::ColonLt => write!(f, ":<"),
