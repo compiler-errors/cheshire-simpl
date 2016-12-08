@@ -55,7 +55,54 @@ pub struct TypeSystem {
     in_snapshot: bool,
 }
 
-pub fn check_file(f: ParseFile, ana: &mut Analyzer, tys: &mut TypeSystem) -> AnalyzeResult<()> {
+pub fn analyze_file(f: ParseFile) {
+    let mut ana = Analyzer {
+        fns: HashMap::new(),
+        fn_sigs: HashMap::new(),
+        obj_id_count: Counter::new(1),
+        obj_info: HashMap::new(),
+        obj_names: HashMap::new(),
+        obj_skeletons: HashMap::new(),
+        trt_id_count: Counter::new(1),
+        trt_info: HashMap::new(),
+        trt_names: HashMap::new(),
+        trt_skeletons: HashMap::new(),
+        impls: Vec::new()
+    };
+
+    let mut ty_map = HashMap::new();
+    // Insert all of the "basic" fundamental types
+    ty_map.insert(TY_NOTHING, AnalyzeType::Nothing);
+    ty_map.insert(TY_BOOLEAN, AnalyzeType::Boolean);
+    ty_map.insert(TY_INT, AnalyzeType::Int);
+    ty_map.insert(TY_UINT, AnalyzeType::UInt);
+    ty_map.insert(TY_FLOAT, AnalyzeType::Float);
+    ty_map.insert(TY_CHAR, AnalyzeType::Char);
+    ty_map.insert(TY_STRING, AnalyzeType::String);
+
+    let mut tys = TypeSystem {
+        return_ty: Ty(0),
+        breakable: false,
+        fn_generics: HashMap::new(),
+        obj_generics: HashMap::new(),
+        ty_var_id_count: Counter::new(1),
+        var_id_count: Counter::new(1),
+        var_ids: Vec::new(),
+        var_tys: HashMap::new(),
+        str_id_count: Counter::new(1),
+        strings: HashMap::new(),
+        ty_id_count: Counter::new(TY_FIRST_NEW_ID),
+        tys: HashMap::new(),
+        ty_history: HashMap::new(),
+        in_snapshot: false,
+    };
+
+    let out = check_file(f, &mut ana, &mut tys);
+
+    out.unwrap();
+}
+
+fn check_file(f: ParseFile, ana: &mut Analyzer, tys: &mut TypeSystem) -> AnalyzeResult<()> {
     let ParseFile { file, mut objects, functions, export_fns, mut traits, mut impls } = f;
 
     for obj in &mut objects {
@@ -115,7 +162,7 @@ pub fn check_file(f: ParseFile, ana: &mut Analyzer, tys: &mut TypeSystem) -> Ana
         }
     }
 
-    // Check impl
+    // TODO: Check impl
 
     for mut fun in functions {
         check_function(ana, tys, &mut fun)?;

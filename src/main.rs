@@ -13,7 +13,7 @@ mod util;
 // mod out;
 // mod test;
 
-// use analyzer::*;
+use analyzer::*;
 use parser::Parser;
 use lexer::Lexer;
 use util::FileReader;
@@ -89,7 +89,7 @@ fn parse_file(file_name: String, ll_out_name: String, exe_out_name: String, emit
     // let mut analyze = Analyzer::new();
 
     let parsed_file = parse.parse_file();
-    // analyze.analyze_file(parsed_file);
+    analyze_file(parsed_file);
 
     // Out::out(analyze, ll_out_file);
 

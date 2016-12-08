@@ -19,8 +19,7 @@ pub const TY_UINT: Ty = Ty(4);
 pub const TY_FLOAT: Ty = Ty(5);
 pub const TY_CHAR: Ty = Ty(6);
 pub const TY_STRING: Ty = Ty(7);
-
-pub const TY_FIRST_NEW_ID: Ty = Ty(8);
+pub const TY_FIRST_NEW_ID: u32 = 8;
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Hash)]
 pub struct TyVarId(pub u32);
