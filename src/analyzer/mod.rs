@@ -149,7 +149,7 @@ fn check_file(f: ParseFile, ana: &mut Analyzer, tys: &mut TypeSystem) -> Analyze
         let fn_sig = initialize_fn_sig(ana, tys, sig)?;
 
         if ana.fn_sigs.insert(sig.name.clone(), fn_sig).is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -158,7 +158,7 @@ fn check_file(f: ParseFile, ana: &mut Analyzer, tys: &mut TypeSystem) -> Analyze
         check_integrity_fn_sig(ana, tys, &fn_sig)?;
 
         if ana.fn_sigs.insert(fun.signature.name.clone(), fn_sig).is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -243,7 +243,7 @@ fn check_stmt(ana: &Analyzer, tys: &mut TypeSystem, stmt: &mut AstStatement) -> 
         &mut AstStatementData::Break |
         &mut AstStatementData::Continue => {
             if !tys.breakable {
-                return Err(());
+                panic!("");
             }
         }
         &mut AstStatementData::NoOp => {}
@@ -329,7 +329,7 @@ fn check_expr(ana: &Analyzer,
                     gen_tys.push(new_infer_ty(tys));
                 }
             } else if generics.len() != get_generics_len(ana, trait_id, fn_name, true) {
-                return Err(());
+                panic!("");
             }
 
             let arg_tys = map_vec_mut(args, |e| check_expr(ana, tys, e, None))?;
@@ -352,7 +352,7 @@ fn check_expr(ana: &Analyzer,
                     fn_gen_tys.push(new_infer_ty(tys));
                 }
             } else if fn_generics.len() != get_generics_len(ana, trait_id, fn_name, false) {
-                return Err(()); //TODO: error
+                panic!(""); //TODO: error
             }
 
             let arg_tys = map_vec_mut(args, |e| check_expr(ana, tys, e, None))?;
@@ -382,7 +382,7 @@ fn check_expr(ana: &Analyzer,
             if is_integral_ty(tys, ty) || is_boolean_ty(tys, ty) {
                 ty
             } else {
-                return Err(());
+                panic!("");
             }
         }
         &mut AstExpressionData::Negate(ref mut expr) => {
@@ -390,7 +390,7 @@ fn check_expr(ana: &Analyzer,
             if is_numeric_ty(tys, ty) {
                 ty
             } else {
-                return Err(());
+                panic!("");
             }
         }
         &mut AstExpressionData::Allocate { ref object } => {
@@ -398,7 +398,7 @@ fn check_expr(ana: &Analyzer,
             if is_object_ty(tys, obj_ty) {
                 obj_ty
             } else {
-                return Err(());
+                panic!("");
             }
         }
         &mut AstExpressionData::BinOp { kind, ref mut lhs, ref mut rhs } => {
@@ -409,27 +409,27 @@ fn check_expr(ana: &Analyzer,
                 BinOpKind::Multiply | BinOpKind::Divide | BinOpKind::Modulo |
                 BinOpKind::Add | BinOpKind::Subtract => {
                     if !is_numeric_ty(tys, lhs_ty) {
-                        return Err(());
+                        panic!("");
                     }
                     lhs_ty
                 }
                 BinOpKind::ShiftLeft | BinOpKind::ShiftRight => {
                     if !is_integral_ty(tys, lhs_ty) {
-                        return Err(());
+                        panic!("");
                     }
                     lhs_ty
                 }
                 BinOpKind::Greater | BinOpKind::Less | BinOpKind::GreaterEqual |
                 BinOpKind::LessEqual => {
                     if !is_numeric_ty(tys, lhs_ty) {
-                        return Err(());
+                        panic!("");
                     }
                     TY_BOOLEAN
                 }
                 BinOpKind::Xor | BinOpKind::And | BinOpKind::Or => {
                     // TODO: also numeric not float
                     if !is_boolean_ty(tys, lhs_ty) {
-                        return Err(());
+                        panic!("");
                     }
                     lhs_ty
                 }
@@ -456,7 +456,7 @@ fn check_fn(ana: &Analyzer,
     }
 
     if generics.len() != fn_sig.generic_ids.len() {
-        return Err(()); //ERROR
+        panic!(""); //ERROR
     }
 
     let replacements: HashMap<_, _> =
@@ -494,7 +494,7 @@ fn check_fns(ana: &Analyzer,
         if check_result.is_ok() {
             if candidate_fn.is_some() {
                 reset_ty_checkpoint(tys)?;
-                return Err(());
+                panic!("");
             }
 
             candidate_fn = Some(fn_sig);
@@ -504,7 +504,7 @@ fn check_fns(ana: &Analyzer,
     }
 
     if candidate_fn.is_none() {
-        return Err(());
+        panic!("");
     }
 
     check_fn(ana, tys, candidate_fn.unwrap(), generics, args, return_hint)
@@ -517,7 +517,7 @@ fn check_requirements(ana: &Analyzer,
                       depth: u32)
                       -> AnalyzeResult<()> {
     if depth == 0 {
-        return Err(()); //ERROR
+        panic!(""); //ERROR
     }
 
     for req in reqs {
@@ -546,7 +546,7 @@ fn check_requirements(ana: &Analyzer,
         }
 
         if !satisfied {
-            return Err(()); //ERROR
+            panic!(""); //ERROR
         }
     }
 
@@ -574,7 +574,7 @@ fn get_obj_fn_sigs(ana: &Analyzer,
 
                 if let Some(trait_id) = candidate_trt {
                     if trait_id != imp.trait_id {
-                        return Err(()); //TODO: ERROR
+                        panic!(""); //TODO: ERROR
                     }
                 }
 
@@ -585,7 +585,7 @@ fn get_obj_fn_sigs(ana: &Analyzer,
     }
 
     if candidate_trt.is_none() {
-        return Err(()); //TODO: error
+        panic!(""); //TODO: error
     }
 
     Ok((candidate_trt.unwrap(), sigs))
@@ -621,7 +621,7 @@ fn initialize_object(ana: &mut Analyzer,
         if tys.obj_generics
             .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
             .is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -631,7 +631,7 @@ fn initialize_object(ana: &mut Analyzer,
 
     for ref mem in &obj.members {
         if member_ids.contains_key(&mem.name) {
-            return Err(());
+            panic!("");
         }
 
         let mem_id = MemberId(member_tys.len() as u32);
@@ -654,7 +654,7 @@ fn initialize_object_fn_sig(ana: &mut Analyzer,
         if tys.fn_generics
             .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
             .is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -675,7 +675,7 @@ fn initialize_trait(ana: &mut Analyzer,
         if tys.obj_generics
             .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
             .is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -685,7 +685,7 @@ fn initialize_trait(ana: &mut Analyzer,
 
     for fun in &trt.functions {
         if mem_fns.contains_key(&fun.name) || static_fns.contains_key(&fun.name) {
-            return Err(());
+            panic!("");
         }
 
         if fun.has_self {
@@ -709,7 +709,7 @@ fn initialize_impl(ana: &mut Analyzer,
         if tys.obj_generics
             .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
             .is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -745,7 +745,7 @@ fn initialize_fn_sig(ana: &mut Analyzer, tys: &mut TypeSystem, fun: &AstFnSignat
         if tys.fn_generics
             .insert(generic.clone(), TyVarId(tys.ty_var_id_count.next()))
             .is_some() {
-            return Err(());
+            panic!("");
         }
     }
 
@@ -802,7 +802,7 @@ fn declare_variable(tys: &mut TypeSystem, name: &String, ty: Ty) -> AnalyzeResul
     let id = VarId(tys.var_id_count.next());
 
     if tys.var_ids.last_mut().unwrap().contains_key(name) {
-        return Err(());
+        panic!("");
     }
 
     tys.var_ids.last_mut().unwrap().insert(name.clone(), id);
@@ -819,7 +819,7 @@ fn get_variable_info(tys: &TypeSystem, name: &String) -> AnalyzeResult<(VarId, T
         }
     }
 
-    Err(())
+    panic!()
 }
 
 fn extract_object_member_info(ana: &Analyzer, tys: &mut TypeSystem, obj_ty: Ty, mem_name: &String) -> AnalyzeResult<(MemberId, Ty)> {
@@ -839,12 +839,12 @@ fn extract_object_member_info(ana: &Analyzer, tys: &mut TypeSystem, obj_ty: Ty, 
             (obj_skeleton, replacements)
         }
         _ => {
-            return Err(());
+            panic!("");
         }
     };
 
     if !obj_skeleton.member_ids.contains_key(mem_name) {
-        return Err(());
+        panic!("");
     }
 
     let MemberId(id) = obj_skeleton.member_ids[mem_name];
@@ -944,7 +944,7 @@ fn make_ident_ty(ana: &Analyzer, tys: &mut TypeSystem,
                      -> AnalyzeResult<AnalyzeType> {
     if tys.fn_generics.contains_key(name) {
         if generics.len() != 0 {
-            return Err(());
+            panic!("");
         }
 
         let ty_var = tys.fn_generics[name];
@@ -953,7 +953,7 @@ fn make_ident_ty(ana: &Analyzer, tys: &mut TypeSystem,
 
     if tys.obj_generics.contains_key(name) {
         if generics.len() != 0 {
-            return Err(());
+            panic!("");
         }
 
         let ty_var = tys.obj_generics[name];
@@ -963,7 +963,7 @@ fn make_ident_ty(ana: &Analyzer, tys: &mut TypeSystem,
     if let Some((obj_id, generics_len)) = get_object_info(ana, name) {
         if generics.len() != generics_len {
             if generics.len() != 0 {
-                return Err(());
+                panic!("");
             }
 
             for _ in 0..generics_len {
@@ -974,7 +974,7 @@ fn make_ident_ty(ana: &Analyzer, tys: &mut TypeSystem,
         Ok(AnalyzeType::Object(obj_id, generics))
     } else {
         // TODO: error for trait?
-        Err(())
+        panic!()
     }
 }
 
@@ -994,7 +994,7 @@ fn init_trait_instance(ana: &Analyzer, tys: &mut TypeSystem,
             let mut gen_tys = map_vec(generics, |t| init_ty(ana, tys, t))?;
             let (id, generics_len) = get_trait_info(ana, name).ok_or_else(|| ())?;
             if gen_tys.len() != generics_len {
-                return Err(());
+                panic!("");
             }
             Ok(AnalyzeTraitInstance {
                 // TODO: new
@@ -1002,7 +1002,7 @@ fn init_trait_instance(ana: &Analyzer, tys: &mut TypeSystem,
                 generics: gen_tys,
             })
         }
-        _ => Err(()),
+        _ => panic!(),
     }
 }
 
@@ -1035,7 +1035,7 @@ fn set_ty(tys: &mut TypeSystem, ty: Ty, aty: AnalyzeType) {
 
 fn set_ty_checkpoint(tys: &mut TypeSystem) -> AnalyzeResult<()> {
     if tys.in_snapshot {
-        return Err(());
+        panic!("");
     }
 
     tys.in_snapshot = true;
@@ -1132,13 +1132,13 @@ fn union_ty(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         // NullInfer can union with any *nullable* type
         (AnalyzeType::NullInfer, t) => {
             if !is_nullable(&t) {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
             set_ty(tys, ty1, AnalyzeType::Same(ty2));
         }
         (t, AnalyzeType::NullInfer) => {
             if !is_nullable(&t) {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
             set_ty(tys, ty2, AnalyzeType::Same(ty1));
         }
@@ -1154,7 +1154,7 @@ fn union_ty(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         // Tuples union if they're the same length and the sub-types union as well.
         (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
             if ty1_tys.len() != ty2_tys.len() {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
             for i in 0..ty1_tys.len() {
                 union_ty(tys, ty1_tys[i], ty2_tys[i])?;
@@ -1167,7 +1167,7 @@ fn union_ty(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         // Object types
         (AnalyzeType::Object(obj_ty1, generics1), AnalyzeType::Object(obj_ty2, generics2)) => {
             if obj_ty1 != obj_ty2 {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
 
             for (gen_ty1, gen_ty2) in generics1.iter().zip(generics2) {
@@ -1176,11 +1176,11 @@ fn union_ty(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         }
         (AnalyzeType::TypeVariable(tv1), AnalyzeType::TypeVariable(tv2)) => {
             if tv1 != tv2 {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
         }
         _ => {
-            return Err(()); /*ERROR*/
+            panic!(""); /*ERROR*/
         }
     }
 
@@ -1208,7 +1208,7 @@ fn union_ty_right(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         }
         (t, AnalyzeType::NullInfer) => {
             if !is_nullable(&t) {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
             set_ty(tys, ty2, AnalyzeType::Same(ty1));
         }
@@ -1224,7 +1224,7 @@ fn union_ty_right(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         // Tuples union if they're the same length and the sub-types union as well.
         (AnalyzeType::Tuple(ty1_tys), AnalyzeType::Tuple(ty2_tys)) => {
             if ty1_tys.len() != ty2_tys.len() {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
             for i in 0..ty1_tys.len() {
                 union_ty_right(tys, ty1_tys[i], ty2_tys[i])?;
@@ -1237,7 +1237,7 @@ fn union_ty_right(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         // Object types
         (AnalyzeType::Object(obj_ty1, generics1), AnalyzeType::Object(obj_ty2, generics2)) => {
             if obj_ty1 != obj_ty2 {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
 
             for (gen_ty1, gen_ty2) in generics1.iter().zip(generics2) {
@@ -1246,11 +1246,11 @@ fn union_ty_right(tys: &mut TypeSystem, ty1: Ty, ty2: Ty) -> AnalyzeResult<()> {
         }
         (AnalyzeType::TypeVariable(tv1), AnalyzeType::TypeVariable(tv2)) => {
             if tv1 != tv2 {
-                return Err(()); //ERROR
+                panic!(""); //ERROR
             }
         }
         _ => {
-            return Err(()); /*ERROR*/
+            panic!(""); /*ERROR*/
         }
     }
 
@@ -1262,7 +1262,7 @@ fn union_trait_right(tys: &mut TypeSystem,
                          trt2: &AnalyzeTraitInstance)
                          -> AnalyzeResult<()> {
     if trt1.id != trt2.id {
-        Err(())
+        panic!()
     } else {
         for (ty1, ty2) in trt1.generics.iter().zip(trt2.generics.iter()) {
             union_ty_right(tys, *ty1, *ty2)?;
@@ -1274,8 +1274,8 @@ fn union_trait_right(tys: &mut TypeSystem,
 
 fn check_integrity_ty(ana: &Analyzer, tys: &mut TypeSystem, ty: Ty) -> AnalyzeResult<()> {
     match tys.tys[&ty].clone() {
-        AnalyzeType::Infer => Err(()),
-        AnalyzeType::NullInfer => Err(()),
+        AnalyzeType::Infer => panic!(),
+        AnalyzeType::NullInfer => panic!(),
         AnalyzeType::Nothing |
         AnalyzeType::Boolean |
         AnalyzeType::Int |
@@ -1393,7 +1393,7 @@ fn extract_array_inner_ty(tys: &TypeSystem, array_ty: Ty) -> AnalyzeResult<Ty> {
     match &tys.tys[&array_ty] {
         &AnalyzeType::Array(inner_ty) => Ok(inner_ty),
         &AnalyzeType::Same(same_ty) => extract_array_inner_ty(tys, same_ty),
-        _ => Err(())
+        _ => panic!()
     }
 }
 
@@ -1401,13 +1401,13 @@ fn extract_tuple_inner_ty(tys: &TypeSystem, tuple_ty: Ty, idx: usize) -> Analyze
     match &tys.tys[&tuple_ty] {
         &AnalyzeType::Tuple(ref tuple_tys) => {
             if tuple_tys.len() <= idx {
-                return Err(())
+                panic!("");
             }
 
             Ok(tuple_tys[idx])
         }
         &AnalyzeType::Same(same_ty) => extract_tuple_inner_ty(tys, same_ty, idx),
-        _ => Err(())
+        _ => panic!()
     }
 }
 
@@ -1415,7 +1415,7 @@ fn get_ty_var(tys: &TypeSystem, ty: Ty) -> AnalyzeResult<TyVarId> {
     match &tys.tys[&ty] {
         &AnalyzeType::TypeVariable(ty_var) => Ok(ty_var),
         &AnalyzeType::Same(same_ty) => get_ty_var(tys, same_ty),
-        _ => Err(()),
+        _ => panic!(),
     }
 }
 

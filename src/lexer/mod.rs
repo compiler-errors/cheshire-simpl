@@ -367,7 +367,7 @@ impl<'a> Lexer<'a> {
             "String" => Token::StringType,
             "Float" => Token::Float,
             "Char" => Token::Char,
-            "_ (Infer)" => Token::Infer,
+            "_" => Token::Infer,
             "Self" => Token::SelfType,
 
             _ => Token::Identifier(string),
